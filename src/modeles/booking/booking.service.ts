@@ -88,10 +88,15 @@ export class BookingService {
           state: "Gujarat",
         },
       });
-    } else if (data.avatarUrl && !customer.avatarUrl) {
+    } else if (data.avatarUrl) {
       customer = await prisma.user.update({
         where: { id: customer.id },
-        data: { avatarUrl: data.avatarUrl },
+        data: {
+          avatarUrl: data.avatarUrl,
+          name: data.name,
+          gender: data.gender,
+          address: data.address,
+        },
       });
     }
 
@@ -253,8 +258,8 @@ export class BookingService {
       where: { id: bookingId },
       data: { status: "PAYMENT_VERIFIED" },
       include: {
-        customer: { select: { id: true, name: true, phone: true } },
-        performer: { select: { id: true, name: true, phone: true, upiId: true } },
+        customer: { select: { id: true, name: true, phone: true, email: true, avatarUrl: true } },
+        performer: { select: { id: true, name: true, phone: true, upiId: true, avatarUrl: true } },
         payments: true,
       },
     });
@@ -285,8 +290,8 @@ export class BookingService {
           notes: data.notes ? `${booking.notes || ""}\n[Update]: ${data.notes}` : booking.notes,
         },
         include: {
-          customer: { select: { id: true, name: true, email: true, phone: true } },
-          performer: { select: { id: true, name: true, phone: true, upiId: true } },
+          customer: { select: { id: true, name: true, email: true, phone: true, avatarUrl: true } },
+          performer: { select: { id: true, name: true, phone: true, upiId: true, avatarUrl: true } },
           payments: true,
         },
       }),
@@ -368,8 +373,8 @@ export class BookingService {
         take: limit,
         orderBy: { createdAt: "desc" },
         include: {
-          customer: { select: { id: true, name: true, phone: true, email: true } },
-          performer: { select: { id: true, name: true, phone: true, upiId: true, hourlyRate: true } },
+          customer: { select: { id: true, name: true, phone: true, email: true, avatarUrl: true } },
+          performer: { select: { id: true, name: true, phone: true, upiId: true, hourlyRate: true, avatarUrl: true } },
           payments: {
             orderBy: { createdAt: "desc" },
             take: 1,
