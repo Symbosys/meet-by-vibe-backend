@@ -13,6 +13,78 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// src/config/env.ts
+import dotenv from "dotenv";
+var STORAGE_PROVIDERS, rawStorageProvider, ENV;
+var init_env = __esm({
+  "src/config/env.ts"() {
+    "use strict";
+    dotenv.config();
+    STORAGE_PROVIDERS = ["CLOUDINARY", "AWS_S3", "AZURE_BLOB", "LOCAL"];
+    rawStorageProvider = (process.env.STORAGE_PROVIDER || "CLOUDINARY").trim().toUpperCase();
+    if (!STORAGE_PROVIDERS.includes(rawStorageProvider)) {
+      throw new Error(`Invalid STORAGE_PROVIDER "${rawStorageProvider}". Expected one of: ${STORAGE_PROVIDERS.join(", ")}`);
+    }
+    ENV = {
+      PORT: Number(process.env.PORT || 4e3),
+      JWT_SECRET: process.env.JWT_SECRET,
+      DATABASE_URL: process.env.DATABASE_URL,
+      FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN,
+      // Active Storage Provider: "CLOUDINARY" | "AWS_S3" | "AZURE_BLOB" | "LOCAL"
+      STORAGE_PROVIDER: rawStorageProvider,
+      CLOUD_NAME: process.env.CLOUD_NAME,
+      CLOUD_API_KEY: process.env.CLOUD_API_KEY,
+      CLOUD_API_SECRET: process.env.CLOUD_API_SECRET,
+      CLOUD_FOLDER: process.env.CLOUD_FOLDER,
+      // AWS S3 Credentials
+      aws_s3_bucket: process.env.AWS_S3_BUCKET,
+      aws_region: process.env.AWS_REGION,
+      aws_access_key_id: process.env.AWS_ACCESS_KEY_ID,
+      aws_secret_access_key: process.env.AWS_SECRET_ACCESS_KEY,
+      // Azure Blob Storage Credentials
+      azure_storage_account: process.env.AZURE_STORAGE_ACCOUNT,
+      azure_storage_key: process.env.AZURE_STORAGE_KEY,
+      azure_storage_container: process.env.AZURE_STORAGE_CONTAINER || "assets",
+      azure_storage_connection_string: process.env.AZURE_STORAGE_CONNECTION_STRING,
+      MODE: process.env.MODE,
+      OLA_MAPS_API_KEY: process.env.OLA_MAPS_API_KEY
+    };
+  }
+});
+
+// src/types/types.ts
+var init_types = __esm({
+  "src/types/types.ts"() {
+    "use strict";
+  }
+});
+
+// src/utils/response.util.ts
+var ErrorResponse, SuccessResponse;
+var init_response_util = __esm({
+  "src/utils/response.util.ts"() {
+    "use strict";
+    ErrorResponse = class extends Error {
+      constructor(message, statusCode2) {
+        super(message);
+        this.message = message;
+        this.statusCode = statusCode2;
+        this.statusCode = statusCode2;
+        Error.captureStackTrace(this, this.constructor);
+      }
+      message;
+      statusCode;
+    };
+    SuccessResponse = (res, message, data = {}, statusCode2 = 200) => {
+      return res.status(statusCode2).json({
+        success: true,
+        message,
+        data
+      });
+    };
+  }
+});
+
 // src/utils/password.util.ts
 var password_util_exports = {};
 __export(password_util_exports, {
@@ -33,48 +105,481 @@ var init_password_util = __esm({
   }
 });
 
+// src/lib/storage/providers/azure.provider.ts
+import {
+  BlobServiceClient,
+  StorageSharedKeyCredential
+} from "@azure/storage-blob";
+var AzureBlobStorageProvider;
+var init_azure_provider = __esm({
+  "src/lib/storage/providers/azure.provider.ts"() {
+    "use strict";
+    init_env();
+    AzureBlobStorageProvider = class {
+      providerType = "AZURE_BLOB";
+      account;
+      container;
+      client = null;
+      constructor() {
+        this.account = ENV.azure_storage_account || "";
+        this.container = ENV.azure_storage_container || "assets";
+        const key = ENV.azure_storage_key || "";
+        const connectionString = ENV.azure_storage_connection_string;
+        if (connectionString) {
+          this.client = BlobServiceClient.fromConnectionString(connectionString);
+        } else if (this.account && key) {
+          const credential = new StorageSharedKeyCredential(this.account, key);
+          this.client = new BlobServiceClient(
+            `https://${this.account}.blob.core.windows.net`,
+            credential
+          );
+        } else {
+          console.warn(
+            "[AzureBlobStorageProvider] Warning: Azure Storage credentials not fully configured in environment."
+          );
+        }
+      }
+      async upload(file, options) {
+        if (!this.client) {
+          throw new Error(
+            "Azure Blob Storage credentials not configured. Please define AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_KEY."
+          );
+        }
+        const containerClient = this.client.getContainerClient(this.container);
+        const blobName = `${options?.folder ? `${options.folder}/` : ""}${options?.publicId || `${Date.now()}-${file.originalname}`}`;
+        const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+        await blockBlobClient.uploadData(file.buffer, {
+          blobHTTPHeaders: { blobContentType: file.mimetype }
+        });
+        const url = blockBlobClient.url;
+        return {
+          url,
+          secureUrl: url,
+          publicId: blobName,
+          provider: "AZURE_BLOB",
+          bytes: file.size,
+          format: file.mimetype.split("/")[1] || "png"
+        };
+      }
+      async delete(publicId) {
+        if (!this.client) {
+          return false;
+        }
+        try {
+          const containerClient = this.client.getContainerClient(this.container);
+          const blockBlobClient = containerClient.getBlockBlobClient(publicId);
+          const response = await blockBlobClient.deleteIfExists();
+          return Boolean(response.succeeded);
+        } catch {
+          return false;
+        }
+      }
+      getUrl(publicId) {
+        if (this.client) {
+          const containerClient = this.client.getContainerClient(this.container);
+          return containerClient.getBlockBlobClient(publicId).url;
+        }
+        return `https://${this.account}.blob.core.windows.net/${this.container}/${publicId}`;
+      }
+    };
+  }
+});
+
+// src/lib/storage/providers/cloudinary.provider.ts
+import { v2 as cloudinary } from "cloudinary";
+var CloudinaryStorageProvider;
+var init_cloudinary_provider = __esm({
+  "src/lib/storage/providers/cloudinary.provider.ts"() {
+    "use strict";
+    init_env();
+    CloudinaryStorageProvider = class {
+      providerType = "CLOUDINARY";
+      cloudName;
+      apiKey;
+      apiSecret;
+      defaultFolder;
+      constructor() {
+        this.cloudName = ENV.CLOUD_NAME || "";
+        this.apiKey = ENV.CLOUD_API_KEY || "";
+        this.apiSecret = ENV.CLOUD_API_SECRET || "";
+        this.defaultFolder = ENV.CLOUD_FOLDER || "garba";
+        if (this.cloudName && this.apiKey && this.apiSecret) {
+          cloudinary.config({
+            cloud_name: this.cloudName,
+            api_key: this.apiKey,
+            api_secret: this.apiSecret,
+            secure: true
+          });
+        } else {
+          console.warn(
+            "[CloudinaryStorageProvider] Warning: Cloudinary credentials not fully configured in environment."
+          );
+        }
+      }
+      async upload(file, options) {
+        if (!this.cloudName || !this.apiKey || !this.apiSecret) {
+          throw new Error(
+            "Cloudinary credentials missing: CLOUD_NAME, CLOUD_API_KEY, and CLOUD_API_SECRET must be set."
+          );
+        }
+        const folder = options?.folder || this.defaultFolder;
+        const uploadOptions = {
+          folder,
+          resource_type: "image",
+          format: "jpg"
+        };
+        if (options?.publicId !== void 0) {
+          uploadOptions.public_id = options.publicId;
+        }
+        if (options?.overwrite !== void 0) {
+          uploadOptions.overwrite = options.overwrite;
+        }
+        if (options?.tags !== void 0) {
+          uploadOptions.tags = options.tags;
+        }
+        const result = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            uploadOptions,
+            (error, uploadResult2) => {
+              if (error || !uploadResult2) {
+                console.error("[Cloudinary Upload Error]", error);
+                return reject(error || new Error("Cloudinary upload failed: No result returned"));
+              }
+              resolve(uploadResult2);
+            }
+          );
+          uploadStream.end(file.buffer);
+        });
+        const uploadResult = {
+          url: result.url,
+          secureUrl: result.secure_url,
+          publicId: result.public_id,
+          provider: "CLOUDINARY",
+          bytes: result.bytes || file.size,
+          format: result.format || file.mimetype.split("/")[1] || "png"
+        };
+        if (result.width !== void 0) {
+          uploadResult.width = result.width;
+        }
+        if (result.height !== void 0) {
+          uploadResult.height = result.height;
+        }
+        return uploadResult;
+      }
+      async delete(publicId) {
+        if (!this.cloudName || !this.apiKey || !this.apiSecret) {
+          return false;
+        }
+        try {
+          const result = await cloudinary.uploader.destroy(publicId);
+          return result.result === "ok";
+        } catch {
+          return false;
+        }
+      }
+      getUrl(publicId) {
+        return cloudinary.url(publicId, { secure: true });
+      }
+    };
+  }
+});
+
+// src/lib/storage/providers/s3.provider.ts
+import {
+  DeleteObjectCommand,
+  PutObjectCommand,
+  S3Client
+} from "@aws-sdk/client-s3";
+var AwsS3StorageProvider;
+var init_s3_provider = __esm({
+  "src/lib/storage/providers/s3.provider.ts"() {
+    "use strict";
+    init_env();
+    AwsS3StorageProvider = class {
+      providerType = "AWS_S3";
+      bucket;
+      region;
+      client = null;
+      constructor() {
+        this.bucket = ENV.aws_s3_bucket || "";
+        this.region = ENV.aws_region || "us-east-1";
+        const accessKeyId = ENV.aws_access_key_id;
+        const secretAccessKey = ENV.aws_secret_access_key;
+        if (this.bucket && accessKeyId && secretAccessKey) {
+          this.client = new S3Client({
+            region: this.region,
+            credentials: {
+              accessKeyId,
+              secretAccessKey
+            }
+          });
+        } else {
+          console.warn(
+            "[AwsS3StorageProvider] Warning: AWS S3 credentials not fully configured in environment."
+          );
+        }
+      }
+      async upload(file, options) {
+        if (!this.bucket || !this.client) {
+          throw new Error(
+            "AWS S3 credentials not configured. Please define AWS_S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY."
+          );
+        }
+        const key = `${options?.folder ? `${options.folder}/` : ""}${options?.publicId || `${Date.now()}-${file.originalname}`}`;
+        const command = new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: file.buffer,
+          ContentType: file.mimetype
+        });
+        await this.client.send(command);
+        const url = `https://${this.bucket}.s3.${this.region}.amazonaws.com/${key}`;
+        return {
+          url,
+          secureUrl: url,
+          publicId: key,
+          provider: "AWS_S3",
+          bytes: file.size,
+          format: file.mimetype.split("/")[1] || "png"
+        };
+      }
+      async delete(publicId) {
+        if (!this.bucket || !this.client) {
+          return false;
+        }
+        try {
+          const command = new DeleteObjectCommand({
+            Bucket: this.bucket,
+            Key: publicId
+          });
+          await this.client.send(command);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      getUrl(publicId) {
+        return `https://${this.bucket}.s3.${this.region}.amazonaws.com/${publicId}`;
+      }
+    };
+  }
+});
+
+// src/lib/storage/storage.factory.ts
+var StorageFactory;
+var init_storage_factory = __esm({
+  "src/lib/storage/storage.factory.ts"() {
+    "use strict";
+    init_env();
+    init_azure_provider();
+    init_cloudinary_provider();
+    init_s3_provider();
+    StorageFactory = class {
+      static instance;
+      static assertSelectedProviderIsConfigured(providerType) {
+        const missing = (entries) => entries.filter(([, value]) => !value).map(([name]) => name);
+        if (providerType === "CLOUDINARY") {
+          const names = missing([
+            ["CLOUD_NAME", ENV.CLOUD_NAME],
+            ["CLOUD_API_KEY", ENV.CLOUD_API_KEY],
+            ["CLOUD_API_SECRET", ENV.CLOUD_API_SECRET]
+          ]);
+          if (names.length) throw new Error(`Cloudinary is selected but these credentials are missing: ${names.join(", ")}`);
+          return;
+        }
+        if (providerType === "AWS_S3") {
+          const names = missing([
+            ["AWS_S3_BUCKET", ENV.aws_s3_bucket],
+            ["AWS_REGION", ENV.aws_region],
+            ["AWS_ACCESS_KEY_ID", ENV.aws_access_key_id],
+            ["AWS_SECRET_ACCESS_KEY", ENV.aws_secret_access_key]
+          ]);
+          if (names.length) throw new Error(`AWS S3 is selected but these credentials are missing: ${names.join(", ")}`);
+          return;
+        }
+        if (providerType === "AZURE_BLOB") {
+          const hasConnectionString = Boolean(ENV.azure_storage_connection_string);
+          const hasAccountCredentials = Boolean(ENV.azure_storage_account && ENV.azure_storage_key);
+          if (!hasConnectionString && !hasAccountCredentials) {
+            throw new Error("Azure Blob is selected but credentials are missing. Set AZURE_STORAGE_CONNECTION_STRING or both AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_KEY");
+          }
+          return;
+        }
+        throw new Error("LOCAL storage is not implemented. Select CLOUDINARY, AWS_S3, or AZURE_BLOB");
+      }
+      static getProvider(type) {
+        if (this.instance && !type) {
+          return this.instance;
+        }
+        const providerType = type || ENV.STORAGE_PROVIDER;
+        this.assertSelectedProviderIsConfigured(providerType);
+        let provider;
+        switch (providerType) {
+          case "AWS_S3":
+            provider = new AwsS3StorageProvider();
+            break;
+          case "AZURE_BLOB":
+            provider = new AzureBlobStorageProvider();
+            break;
+          case "CLOUDINARY":
+            provider = new CloudinaryStorageProvider();
+            break;
+          default:
+            throw new Error(`Unsupported storage provider: ${providerType}`);
+        }
+        if (!type) {
+          this.instance = provider;
+        }
+        return provider;
+      }
+    };
+  }
+});
+
+// src/lib/storage/storage.service.ts
+var StorageService, storageService;
+var init_storage_service = __esm({
+  "src/lib/storage/storage.service.ts"() {
+    "use strict";
+    init_storage_factory();
+    StorageService = class {
+      constructor(provider = StorageFactory.getProvider()) {
+        this.provider = provider;
+      }
+      provider;
+      /**
+       * Upload an asset to the active cloud storage provider.
+       */
+      async upload(file, options) {
+        return this.provider.upload(file, options);
+      }
+      /**
+       * Delete an asset from the active cloud storage provider.
+       */
+      async delete(publicId) {
+        return this.provider.delete(publicId);
+      }
+      /**
+       * Resolve public URL for an asset.
+       */
+      getUrl(publicId) {
+        return this.provider.getUrl(publicId);
+      }
+      /**
+       * Get the name of the currently active storage provider.
+       */
+      get activeProviderName() {
+        return this.provider.providerType;
+      }
+    };
+    storageService = new StorageService();
+  }
+});
+
+// src/utils/upload.util.ts
+var upload_util_exports = {};
+__export(upload_util_exports, {
+  assertSafeImage: () => assertSafeImage,
+  cleanupUploads: () => cleanupUploads,
+  uploadImages: () => uploadImages
+});
+import crypto from "node:crypto";
+import sharp from "sharp";
+function assertSafeImage(file) {
+  const valid = file.mimetype === "image/jpeg" && isJpeg(file.buffer) || file.mimetype === "image/png" && isPng(file.buffer) || file.mimetype === "image/webp" && isWebp(file.buffer);
+  if (!valid) throw new ErrorResponse("Uploaded file content is not a valid JPEG, PNG, or WebP image", 400 /* Bad_Request */);
+}
+async function compressUnder100KB(buffer) {
+  let maxDim = 1280;
+  let quality = 80;
+  let outBuffer = await sharp(buffer, { failOn: "none", limitInputPixels: 4e7 }).rotate().resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true }).jpeg({ quality, progressive: true, mozjpeg: false }).toBuffer();
+  if (outBuffer.length <= TARGET_MAX_BYTES) {
+    return { buffer: outBuffer, mimetype: "image/jpeg" };
+  }
+  const steps = [
+    { dim: 1024, q: 72 },
+    { dim: 900, q: 65 },
+    { dim: 800, q: 55 },
+    { dim: 640, q: 48 },
+    { dim: 500, q: 40 }
+  ];
+  for (const step of steps) {
+    outBuffer = await sharp(buffer, { failOn: "none", limitInputPixels: 4e7 }).rotate().resize({ width: step.dim, height: step.dim, fit: "inside", withoutEnlargement: true }).jpeg({ quality: step.q, progressive: true, mozjpeg: false }).toBuffer();
+    if (outBuffer.length <= TARGET_MAX_BYTES) {
+      break;
+    }
+  }
+  return { buffer: outBuffer, mimetype: "image/jpeg" };
+}
+async function normalizeImage(file) {
+  try {
+    const { buffer: compressedBuffer, mimetype } = await compressUnder100KB(file.buffer);
+    return {
+      buffer: compressedBuffer,
+      originalname: file.originalname.replace(/\.[^/.]+$/, ".jpg"),
+      mimetype,
+      size: compressedBuffer.length
+    };
+  } catch (err) {
+    console.error("[Image Processing Error]", err);
+    throw new ErrorResponse(
+      "One of the uploaded images is damaged or cannot be processed. Please upload a valid JPEG, PNG, or WebP image",
+      400 /* Bad_Request */
+    );
+  }
+}
+async function uploadImages(files, folder) {
+  files.forEach(assertSafeImage);
+  const completed = [];
+  try {
+    const normalizedFiles = await Promise.all(files.map((file) => normalizeImage(file)));
+    const uploadResults = await Promise.all(
+      normalizedFiles.map(async (normalized) => {
+        const res = await storageService.upload(normalized, {
+          folder,
+          publicId: crypto.randomUUID(),
+          resourceType: "image"
+        });
+        completed.push(res);
+        return res;
+      })
+    );
+    return uploadResults;
+  } catch (error) {
+    await cleanupUploads(completed);
+    console.error("[UploadImages Cloud Storage Error]", error);
+    const errorMessage = error?.message || (error && typeof error === "object" && "http_code" in error ? "Cloud storage rejected an uploaded image. Please check credentials or retry with a valid image" : "Failed to upload image to cloud storage");
+    throw new ErrorResponse(errorMessage, 400 /* Bad_Request */);
+  }
+}
+async function cleanupUploads(uploads) {
+  await Promise.allSettled(uploads.map((upload2) => storageService.delete(upload2.publicId)));
+}
+var isJpeg, isPng, isWebp, TARGET_MAX_BYTES;
+var init_upload_util = __esm({
+  "src/utils/upload.util.ts"() {
+    "use strict";
+    init_storage_service();
+    init_types();
+    init_response_util();
+    isJpeg = (b) => b.length >= 3 && b[0] === 255 && b[1] === 216 && b[2] === 255;
+    isPng = (b) => b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    isWebp = (b) => b.length >= 12 && b.subarray(0, 4).toString() === "RIFF" && b.subarray(8, 12).toString() === "WEBP";
+    TARGET_MAX_BYTES = 100 * 1024;
+  }
+});
+
 // src/index.ts
 import http from "http";
 
 // src/app.ts
+init_env();
 import cors from "cors";
 import express from "express";
 import "morgan";
 
-// src/config/env.ts
-import dotenv from "dotenv";
-dotenv.config();
-var STORAGE_PROVIDERS = ["CLOUDINARY", "AWS_S3", "AZURE_BLOB", "LOCAL"];
-var rawStorageProvider = (process.env.STORAGE_PROVIDER || "CLOUDINARY").trim().toUpperCase();
-if (!STORAGE_PROVIDERS.includes(rawStorageProvider)) {
-  throw new Error(`Invalid STORAGE_PROVIDER "${rawStorageProvider}". Expected one of: ${STORAGE_PROVIDERS.join(", ")}`);
-}
-var ENV = {
-  PORT: Number(process.env.PORT || 4e3),
-  JWT_SECRET: process.env.JWT_SECRET,
-  DATABASE_URL: process.env.DATABASE_URL,
-  FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN,
-  // Active Storage Provider: "CLOUDINARY" | "AWS_S3" | "AZURE_BLOB" | "LOCAL"
-  STORAGE_PROVIDER: rawStorageProvider,
-  CLOUD_NAME: process.env.CLOUD_NAME,
-  CLOUD_API_KEY: process.env.CLOUD_API_KEY,
-  CLOUD_API_SECRET: process.env.CLOUD_API_SECRET,
-  CLOUD_FOLDER: process.env.CLOUD_FOLDER,
-  // AWS S3 Credentials
-  aws_s3_bucket: process.env.AWS_S3_BUCKET,
-  aws_region: process.env.AWS_REGION,
-  aws_access_key_id: process.env.AWS_ACCESS_KEY_ID,
-  aws_secret_access_key: process.env.AWS_SECRET_ACCESS_KEY,
-  // Azure Blob Storage Credentials
-  azure_storage_account: process.env.AZURE_STORAGE_ACCOUNT,
-  azure_storage_key: process.env.AZURE_STORAGE_KEY,
-  azure_storage_container: process.env.AZURE_STORAGE_CONTAINER || "assets",
-  azure_storage_connection_string: process.env.AZURE_STORAGE_CONNECTION_STRING,
-  MODE: process.env.MODE,
-  OLA_MAPS_API_KEY: process.env.OLA_MAPS_API_KEY
-};
-
 // src/middlewares/error.middleware.ts
+init_types();
 import { ZodError } from "zod";
 
 // src/utils/utils.ts
@@ -88,6 +593,7 @@ var zodError = (error) => {
 };
 
 // src/middlewares/error.middleware.ts
+init_env();
 var errorMiddleware = (err, req, res, next) => {
   if (ENV.MODE !== "PRODUCTION") console.error(err);
   err.message ||= "Internal Server Error";
@@ -121,25 +627,9 @@ var errorMiddleware = (err, req, res, next) => {
   });
 };
 
-// src/utils/response.util.ts
-var ErrorResponse = class extends Error {
-  constructor(message, statusCode2) {
-    super(message);
-    this.message = message;
-    this.statusCode = statusCode2;
-    this.statusCode = statusCode2;
-    Error.captureStackTrace(this, this.constructor);
-  }
-  message;
-  statusCode;
-};
-var SuccessResponse = (res, message, data = {}, statusCode2 = 200) => {
-  return res.status(statusCode2).json({
-    success: true,
-    message,
-    data
-  });
-};
+// src/app.ts
+init_types();
+init_response_util();
 
 // src/modeles/user/user.routes.ts
 import { Router } from "express";
@@ -213,6 +703,7 @@ globalThis["__dirname"] = path.dirname(fileURLToPath(import.meta.url));
 var PrismaClient = getPrismaClientClass();
 
 // src/lib/prisma.ts
+init_env();
 if (!ENV.DATABASE_URL) throw new Error("DATABASE_URL is required");
 var adapter = new PrismaPg({ connectionString: ENV.DATABASE_URL });
 var prisma = new PrismaClient({ adapter });
@@ -221,6 +712,8 @@ var prisma = new PrismaClient({ adapter });
 init_password_util();
 
 // src/utils/normalization.util.ts
+init_types();
+init_response_util();
 var normalizeEmail = (value) => value.trim().toLowerCase();
 function normalizePhone(value) {
   const cleaned = value.trim().replace(/[\s()-]/g, "");
@@ -243,420 +736,10 @@ function normalizePhone(value) {
   throw new ErrorResponse("Please enter a valid phone number", 400 /* Bad_Request */);
 }
 
-// src/utils/upload.util.ts
-import crypto from "node:crypto";
-import sharp from "sharp";
-
-// src/lib/storage/providers/azure.provider.ts
-import {
-  BlobServiceClient,
-  StorageSharedKeyCredential
-} from "@azure/storage-blob";
-var AzureBlobStorageProvider = class {
-  providerType = "AZURE_BLOB";
-  account;
-  container;
-  client = null;
-  constructor() {
-    this.account = ENV.azure_storage_account || "";
-    this.container = ENV.azure_storage_container || "assets";
-    const key = ENV.azure_storage_key || "";
-    const connectionString = ENV.azure_storage_connection_string;
-    if (connectionString) {
-      this.client = BlobServiceClient.fromConnectionString(connectionString);
-    } else if (this.account && key) {
-      const credential = new StorageSharedKeyCredential(this.account, key);
-      this.client = new BlobServiceClient(
-        `https://${this.account}.blob.core.windows.net`,
-        credential
-      );
-    } else {
-      console.warn(
-        "[AzureBlobStorageProvider] Warning: Azure Storage credentials not fully configured in environment."
-      );
-    }
-  }
-  async upload(file, options) {
-    if (!this.client) {
-      throw new Error(
-        "Azure Blob Storage credentials not configured. Please define AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_KEY."
-      );
-    }
-    const containerClient = this.client.getContainerClient(this.container);
-    const blobName = `${options?.folder ? `${options.folder}/` : ""}${options?.publicId || `${Date.now()}-${file.originalname}`}`;
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-    await blockBlobClient.uploadData(file.buffer, {
-      blobHTTPHeaders: { blobContentType: file.mimetype }
-    });
-    const url = blockBlobClient.url;
-    return {
-      url,
-      secureUrl: url,
-      publicId: blobName,
-      provider: "AZURE_BLOB",
-      bytes: file.size,
-      format: file.mimetype.split("/")[1] || "png"
-    };
-  }
-  async delete(publicId) {
-    if (!this.client) {
-      return false;
-    }
-    try {
-      const containerClient = this.client.getContainerClient(this.container);
-      const blockBlobClient = containerClient.getBlockBlobClient(publicId);
-      const response = await blockBlobClient.deleteIfExists();
-      return Boolean(response.succeeded);
-    } catch {
-      return false;
-    }
-  }
-  getUrl(publicId) {
-    if (this.client) {
-      const containerClient = this.client.getContainerClient(this.container);
-      return containerClient.getBlockBlobClient(publicId).url;
-    }
-    return `https://${this.account}.blob.core.windows.net/${this.container}/${publicId}`;
-  }
-};
-
-// src/lib/storage/providers/cloudinary.provider.ts
-import { v2 as cloudinary } from "cloudinary";
-var CloudinaryStorageProvider = class {
-  providerType = "CLOUDINARY";
-  cloudName;
-  apiKey;
-  apiSecret;
-  defaultFolder;
-  constructor() {
-    this.cloudName = ENV.CLOUD_NAME || "";
-    this.apiKey = ENV.CLOUD_API_KEY || "";
-    this.apiSecret = ENV.CLOUD_API_SECRET || "";
-    this.defaultFolder = ENV.CLOUD_FOLDER || "garba";
-    if (this.cloudName && this.apiKey && this.apiSecret) {
-      cloudinary.config({
-        cloud_name: this.cloudName,
-        api_key: this.apiKey,
-        api_secret: this.apiSecret,
-        secure: true
-      });
-    } else {
-      console.warn(
-        "[CloudinaryStorageProvider] Warning: Cloudinary credentials not fully configured in environment."
-      );
-    }
-  }
-  async upload(file, options) {
-    if (!this.cloudName || !this.apiKey || !this.apiSecret) {
-      throw new Error(
-        "Cloudinary credentials missing: CLOUD_NAME, CLOUD_API_KEY, and CLOUD_API_SECRET must be set."
-      );
-    }
-    const folder = options?.folder || this.defaultFolder;
-    const uploadOptions = {
-      folder,
-      resource_type: "image",
-      format: "jpg"
-    };
-    if (options?.publicId !== void 0) {
-      uploadOptions.public_id = options.publicId;
-    }
-    if (options?.overwrite !== void 0) {
-      uploadOptions.overwrite = options.overwrite;
-    }
-    if (options?.tags !== void 0) {
-      uploadOptions.tags = options.tags;
-    }
-    const result = await new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        uploadOptions,
-        (error, uploadResult2) => {
-          if (error || !uploadResult2) {
-            console.error("[Cloudinary Upload Error]", error);
-            return reject(error || new Error("Cloudinary upload failed: No result returned"));
-          }
-          resolve(uploadResult2);
-        }
-      );
-      uploadStream.end(file.buffer);
-    });
-    const uploadResult = {
-      url: result.url,
-      secureUrl: result.secure_url,
-      publicId: result.public_id,
-      provider: "CLOUDINARY",
-      bytes: result.bytes || file.size,
-      format: result.format || file.mimetype.split("/")[1] || "png"
-    };
-    if (result.width !== void 0) {
-      uploadResult.width = result.width;
-    }
-    if (result.height !== void 0) {
-      uploadResult.height = result.height;
-    }
-    return uploadResult;
-  }
-  async delete(publicId) {
-    if (!this.cloudName || !this.apiKey || !this.apiSecret) {
-      return false;
-    }
-    try {
-      const result = await cloudinary.uploader.destroy(publicId);
-      return result.result === "ok";
-    } catch {
-      return false;
-    }
-  }
-  getUrl(publicId) {
-    return cloudinary.url(publicId, { secure: true });
-  }
-};
-
-// src/lib/storage/providers/s3.provider.ts
-import {
-  DeleteObjectCommand,
-  PutObjectCommand,
-  S3Client
-} from "@aws-sdk/client-s3";
-var AwsS3StorageProvider = class {
-  providerType = "AWS_S3";
-  bucket;
-  region;
-  client = null;
-  constructor() {
-    this.bucket = ENV.aws_s3_bucket || "";
-    this.region = ENV.aws_region || "us-east-1";
-    const accessKeyId = ENV.aws_access_key_id;
-    const secretAccessKey = ENV.aws_secret_access_key;
-    if (this.bucket && accessKeyId && secretAccessKey) {
-      this.client = new S3Client({
-        region: this.region,
-        credentials: {
-          accessKeyId,
-          secretAccessKey
-        }
-      });
-    } else {
-      console.warn(
-        "[AwsS3StorageProvider] Warning: AWS S3 credentials not fully configured in environment."
-      );
-    }
-  }
-  async upload(file, options) {
-    if (!this.bucket || !this.client) {
-      throw new Error(
-        "AWS S3 credentials not configured. Please define AWS_S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY."
-      );
-    }
-    const key = `${options?.folder ? `${options.folder}/` : ""}${options?.publicId || `${Date.now()}-${file.originalname}`}`;
-    const command = new PutObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-      Body: file.buffer,
-      ContentType: file.mimetype
-    });
-    await this.client.send(command);
-    const url = `https://${this.bucket}.s3.${this.region}.amazonaws.com/${key}`;
-    return {
-      url,
-      secureUrl: url,
-      publicId: key,
-      provider: "AWS_S3",
-      bytes: file.size,
-      format: file.mimetype.split("/")[1] || "png"
-    };
-  }
-  async delete(publicId) {
-    if (!this.bucket || !this.client) {
-      return false;
-    }
-    try {
-      const command = new DeleteObjectCommand({
-        Bucket: this.bucket,
-        Key: publicId
-      });
-      await this.client.send(command);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  getUrl(publicId) {
-    return `https://${this.bucket}.s3.${this.region}.amazonaws.com/${publicId}`;
-  }
-};
-
-// src/lib/storage/storage.factory.ts
-var StorageFactory = class {
-  static instance;
-  static assertSelectedProviderIsConfigured(providerType) {
-    const missing = (entries) => entries.filter(([, value]) => !value).map(([name]) => name);
-    if (providerType === "CLOUDINARY") {
-      const names = missing([
-        ["CLOUD_NAME", ENV.CLOUD_NAME],
-        ["CLOUD_API_KEY", ENV.CLOUD_API_KEY],
-        ["CLOUD_API_SECRET", ENV.CLOUD_API_SECRET]
-      ]);
-      if (names.length) throw new Error(`Cloudinary is selected but these credentials are missing: ${names.join(", ")}`);
-      return;
-    }
-    if (providerType === "AWS_S3") {
-      const names = missing([
-        ["AWS_S3_BUCKET", ENV.aws_s3_bucket],
-        ["AWS_REGION", ENV.aws_region],
-        ["AWS_ACCESS_KEY_ID", ENV.aws_access_key_id],
-        ["AWS_SECRET_ACCESS_KEY", ENV.aws_secret_access_key]
-      ]);
-      if (names.length) throw new Error(`AWS S3 is selected but these credentials are missing: ${names.join(", ")}`);
-      return;
-    }
-    if (providerType === "AZURE_BLOB") {
-      const hasConnectionString = Boolean(ENV.azure_storage_connection_string);
-      const hasAccountCredentials = Boolean(ENV.azure_storage_account && ENV.azure_storage_key);
-      if (!hasConnectionString && !hasAccountCredentials) {
-        throw new Error("Azure Blob is selected but credentials are missing. Set AZURE_STORAGE_CONNECTION_STRING or both AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_KEY");
-      }
-      return;
-    }
-    throw new Error("LOCAL storage is not implemented. Select CLOUDINARY, AWS_S3, or AZURE_BLOB");
-  }
-  static getProvider(type) {
-    if (this.instance && !type) {
-      return this.instance;
-    }
-    const providerType = type || ENV.STORAGE_PROVIDER;
-    this.assertSelectedProviderIsConfigured(providerType);
-    let provider;
-    switch (providerType) {
-      case "AWS_S3":
-        provider = new AwsS3StorageProvider();
-        break;
-      case "AZURE_BLOB":
-        provider = new AzureBlobStorageProvider();
-        break;
-      case "CLOUDINARY":
-        provider = new CloudinaryStorageProvider();
-        break;
-      default:
-        throw new Error(`Unsupported storage provider: ${providerType}`);
-    }
-    if (!type) {
-      this.instance = provider;
-    }
-    return provider;
-  }
-};
-
-// src/lib/storage/storage.service.ts
-var StorageService = class {
-  constructor(provider = StorageFactory.getProvider()) {
-    this.provider = provider;
-  }
-  provider;
-  /**
-   * Upload an asset to the active cloud storage provider.
-   */
-  async upload(file, options) {
-    return this.provider.upload(file, options);
-  }
-  /**
-   * Delete an asset from the active cloud storage provider.
-   */
-  async delete(publicId) {
-    return this.provider.delete(publicId);
-  }
-  /**
-   * Resolve public URL for an asset.
-   */
-  getUrl(publicId) {
-    return this.provider.getUrl(publicId);
-  }
-  /**
-   * Get the name of the currently active storage provider.
-   */
-  get activeProviderName() {
-    return this.provider.providerType;
-  }
-};
-var storageService = new StorageService();
-
-// src/utils/upload.util.ts
-var isJpeg = (b) => b.length >= 3 && b[0] === 255 && b[1] === 216 && b[2] === 255;
-var isPng = (b) => b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-var isWebp = (b) => b.length >= 12 && b.subarray(0, 4).toString() === "RIFF" && b.subarray(8, 12).toString() === "WEBP";
-function assertSafeImage(file) {
-  const valid = file.mimetype === "image/jpeg" && isJpeg(file.buffer) || file.mimetype === "image/png" && isPng(file.buffer) || file.mimetype === "image/webp" && isWebp(file.buffer);
-  if (!valid) throw new ErrorResponse("Uploaded file content is not a valid JPEG, PNG, or WebP image", 400 /* Bad_Request */);
-}
-var TARGET_MAX_BYTES = 100 * 1024;
-async function compressUnder100KB(buffer) {
-  let maxDim = 1280;
-  let quality = 80;
-  let outBuffer = await sharp(buffer, { failOn: "none", limitInputPixels: 4e7 }).rotate().resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true }).jpeg({ quality, progressive: true, mozjpeg: false }).toBuffer();
-  if (outBuffer.length <= TARGET_MAX_BYTES) {
-    return { buffer: outBuffer, mimetype: "image/jpeg" };
-  }
-  const steps = [
-    { dim: 1024, q: 72 },
-    { dim: 900, q: 65 },
-    { dim: 800, q: 55 },
-    { dim: 640, q: 48 },
-    { dim: 500, q: 40 }
-  ];
-  for (const step of steps) {
-    outBuffer = await sharp(buffer, { failOn: "none", limitInputPixels: 4e7 }).rotate().resize({ width: step.dim, height: step.dim, fit: "inside", withoutEnlargement: true }).jpeg({ quality: step.q, progressive: true, mozjpeg: false }).toBuffer();
-    if (outBuffer.length <= TARGET_MAX_BYTES) {
-      break;
-    }
-  }
-  return { buffer: outBuffer, mimetype: "image/jpeg" };
-}
-async function normalizeImage(file) {
-  try {
-    const { buffer: compressedBuffer, mimetype } = await compressUnder100KB(file.buffer);
-    return {
-      buffer: compressedBuffer,
-      originalname: file.originalname.replace(/\.[^/.]+$/, ".jpg"),
-      mimetype,
-      size: compressedBuffer.length
-    };
-  } catch (err) {
-    console.error("[Image Processing Error]", err);
-    throw new ErrorResponse(
-      "One of the uploaded images is damaged or cannot be processed. Please upload a valid JPEG, PNG, or WebP image",
-      400 /* Bad_Request */
-    );
-  }
-}
-async function uploadImages(files, folder) {
-  files.forEach(assertSafeImage);
-  const completed = [];
-  try {
-    const normalizedFiles = await Promise.all(files.map((file) => normalizeImage(file)));
-    const uploadResults = await Promise.all(
-      normalizedFiles.map(async (normalized) => {
-        const res = await storageService.upload(normalized, {
-          folder,
-          publicId: crypto.randomUUID(),
-          resourceType: "image"
-        });
-        completed.push(res);
-        return res;
-      })
-    );
-    return uploadResults;
-  } catch (error) {
-    await cleanupUploads(completed);
-    console.error("[UploadImages Cloud Storage Error]", error);
-    const errorMessage = error?.message || (error && typeof error === "object" && "http_code" in error ? "Cloud storage rejected an uploaded image. Please check credentials or retry with a valid image" : "Failed to upload image to cloud storage");
-    throw new ErrorResponse(errorMessage, 400 /* Bad_Request */);
-  }
-}
-async function cleanupUploads(uploads) {
-  await Promise.allSettled(uploads.map((upload2) => storageService.delete(upload2.publicId)));
-}
-
 // src/modeles/user/user.service.ts
+init_upload_util();
+init_response_util();
+init_types();
 var UserService = class {
   /**
    * CREATE: Create a new User / Performer model
@@ -907,6 +990,10 @@ var UserService = class {
 };
 var userService = new UserService();
 
+// src/modeles/user/user.controller.ts
+init_response_util();
+init_types();
+
 // src/modeles/user/user.validation.ts
 import { z } from "zod";
 var RoleEnum = z.enum(["CUSTOMER", "PERFORMER", "ORGANIZER", "ADMIN"]);
@@ -1093,6 +1180,8 @@ var UserController = class {
 var userController = new UserController();
 
 // src/middlewares/upload.middleware.ts
+init_response_util();
+init_types();
 import multer from "multer";
 var MIME_PRESETS = {
   image: [
@@ -1287,6 +1376,9 @@ function generateBookingCode() {
 }
 
 // src/modeles/booking/booking.service.ts
+init_upload_util();
+init_response_util();
+init_types();
 var DEFAULT_MERCHANT_VPA = process.env.MERCHANT_UPI_ID || "garbamitra.pay@okaxis";
 var QR_EXPIRY_MINUTES = 15;
 var BookingService = class {
@@ -1386,15 +1478,33 @@ var BookingService = class {
     const bookingCode = generateBookingCode();
     const transactionRef = `TXN-${bookingCode}-${crypto2.randomBytes(3).toString("hex").toUpperCase()}`;
     const expiresAt = new Date(Date.now() + QR_EXPIRY_MINUTES * 60 * 1e3);
-    const payeeVpa = DEFAULT_MERCHANT_VPA;
+    let payeeVpa = DEFAULT_MERCHANT_VPA;
+    let payeeName = "GarbaMitra Platform";
+    let activeQrImageUrl = null;
+    let activePaymentMethod = null;
+    try {
+      const activeQR = await prisma.qRCode.findFirst({
+        where: { isActive: true, isPrimary: true }
+      }) || await prisma.qRCode.findFirst({
+        where: { isActive: true }
+      });
+      if (activeQR) {
+        if (activeQR.upiId) payeeVpa = activeQR.upiId;
+        if (activeQR.accountHolderName) payeeName = activeQR.accountHolderName;
+        if (activeQR.imageUrl) activeQrImageUrl = activeQR.imageUrl;
+        if (activeQR.bankName) activePaymentMethod = `UPI_QR_${activeQR.bankName.toUpperCase().replace(/\s+/g, "_")}`;
+      }
+    } catch {
+    }
     const { upiPayload, qrCodeDataUrl } = await generateUpiQrCode({
       vpa: payeeVpa,
-      payeeName: "GarbaMitra Platform",
+      payeeName,
       amount: totalAmount,
       transactionRef,
       transactionNote: `Booking for ${performer.name} - ${bookingCode}`,
       currency: "INR"
     });
+    const finalQrCodeUrl = activeQrImageUrl || qrCodeDataUrl;
     const [booking, payment] = await prisma.$transaction(async (tx) => {
       const newBooking = await tx.booking.create({
         data: {
@@ -1425,9 +1535,9 @@ var BookingService = class {
           bookingId: newBooking.id,
           amount: totalAmount,
           currency: "INR",
-          paymentMethod: data.paymentMethod || "UPI_QR_DYNAMIC",
+          paymentMethod: data.paymentMethod || activePaymentMethod || "UPI_QR_DYNAMIC",
           paymentStatus: "PENDING",
-          qrCodeUrl: qrCodeDataUrl,
+          qrCodeUrl: finalQrCodeUrl,
           upiPayload,
           transactionRef,
           expiresAt
@@ -1655,6 +1765,10 @@ var BookingService = class {
 };
 var bookingService = new BookingService();
 
+// src/modeles/booking/booking.controller.ts
+init_response_util();
+init_types();
+
 // src/modeles/booking/booking.validation.ts
 import { z as z2 } from "zod";
 var BookingStatusEnum = z2.enum([
@@ -1702,7 +1816,7 @@ var initiateBookingSchema = z2.object({
 });
 var submitPaymentProofSchema = z2.object({
   utrNumber: z2.string().min(6, "UTR Number must be at least 6 alphanumeric digits"),
-  paymentScreenshotUrl: z2.string().url().optional()
+  paymentScreenshotUrl: z2.string().optional()
 });
 var updateBookingStatusSchema = z2.object({
   status: BookingStatusEnum,
@@ -1834,6 +1948,8 @@ var booking_routes_default = router2;
 import { Router as Router3 } from "express";
 
 // src/modeles/qr/qr.service.ts
+init_response_util();
+init_types();
 var QRService = class {
   /**
    * Get the active & primary QR code for customer booking payments
@@ -1957,6 +2073,10 @@ var QRService = class {
 };
 var qrService = new QRService();
 
+// src/modeles/qr/qr.controller.ts
+init_response_util();
+init_types();
+
 // src/modeles/qr/qr.validation.ts
 import { z as z3 } from "zod";
 var createQRCodeSchema = z3.object({
@@ -2024,7 +2144,16 @@ var QRController = class {
    */
   async createQRCode(req, res, next) {
     try {
-      const validated = createQRCodeSchema.parse(req.body);
+      let imageUrl = req.body.imageUrl;
+      if (req.file) {
+        const { uploadImages: uploadImages2 } = await Promise.resolve().then(() => (init_upload_util(), upload_util_exports));
+        const [uploaded] = await uploadImages2([req.file], "garba/qr_codes");
+        if (uploaded?.url) {
+          imageUrl = uploaded.url;
+        }
+      }
+      const payload = { ...req.body, imageUrl };
+      const validated = createQRCodeSchema.parse(payload);
       const newQR = await qrService.createQRCode(validated);
       return SuccessResponse(res, "QR code created successfully", newQR, 201 /* Created */);
     } catch (err) {
@@ -2037,7 +2166,16 @@ var QRController = class {
    */
   async updateQRCode(req, res, next) {
     try {
-      const validated = updateQRCodeSchema.parse(req.body);
+      let imageUrl = req.body.imageUrl;
+      if (req.file) {
+        const { uploadImages: uploadImages2 } = await Promise.resolve().then(() => (init_upload_util(), upload_util_exports));
+        const [uploaded] = await uploadImages2([req.file], "garba/qr_codes");
+        if (uploaded?.url) {
+          imageUrl = uploaded.url;
+        }
+      }
+      const payload = { ...req.body, ...imageUrl ? { imageUrl } : {} };
+      const validated = updateQRCodeSchema.parse(payload);
       const updated = await qrService.updateQRCode(req.params.id, validated);
       return SuccessResponse(res, "QR code updated successfully", updated);
     } catch (err) {
@@ -2075,12 +2213,20 @@ var qrController = new QRController();
 var router3 = Router3();
 router3.get("/active", qrController.getActiveQRCode.bind(qrController));
 router3.get("/admin/all", qrController.getAllQRCodes.bind(qrController));
+router3.get("/all", qrController.getAllQRCodes.bind(qrController));
+router3.get("/", qrController.getAllQRCodes.bind(qrController));
 router3.get("/admin/:id", qrController.getQRCodeById.bind(qrController));
-router3.post("/admin", qrController.createQRCode.bind(qrController));
-router3.patch("/admin/:id", qrController.updateQRCode.bind(qrController));
+router3.get("/:id", qrController.getQRCodeById.bind(qrController));
+router3.post("/admin", upload.single("image"), qrController.createQRCode.bind(qrController));
+router3.post("/upload", upload.single("image"), qrController.createQRCode.bind(qrController));
+router3.post("/", upload.single("image"), qrController.createQRCode.bind(qrController));
+router3.patch("/admin/:id", upload.single("image"), qrController.updateQRCode.bind(qrController));
+router3.patch("/:id", upload.single("image"), qrController.updateQRCode.bind(qrController));
 router3.patch("/admin/:id/primary", qrController.setPrimaryQRCode.bind(qrController));
+router3.patch("/:id/primary", qrController.setPrimaryQRCode.bind(qrController));
 router3.delete("/admin/:id", qrController.deleteQRCode.bind(qrController));
-var qrRoutes = router3;
+router3.delete("/:id", qrController.deleteQRCode.bind(qrController));
+var qr_routes_default = router3;
 
 // src/app.ts
 var app = express();
@@ -2101,12 +2247,13 @@ app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 app.get("/", (_req, res) => res.status(200).json({ message: "Welcome to GarbaMitra API", success: true, mode: ENV.MODE }));
 app.use("/api/v1/users", user_routes_default);
 app.use("/api/v1/bookings", booking_routes_default);
-app.use("/api/v1/qr", qrRoutes);
+app.use("/api/v1/qr", qr_routes_default);
 app.use((_req, _res, next) => next(new ErrorResponse("Route not found", 404 /* Not_Found */)));
 app.use(errorMiddleware);
 var app_default = app;
 
 // src/index.ts
+init_env();
 var PORT = Number(process.env.PORT || ENV.PORT || 4e3);
 if (!ENV.DATABASE_URL) {
   console.warn("\u26A0\uFE0F Warning: DATABASE_URL is not set. Database connections will fail.");

@@ -138,6 +138,9 @@ export class BookingService {
     let payeeVpa = DEFAULT_MERCHANT_VPA;
     let payeeName = "GarbaMitra Platform";
 
+    let activeQrImageUrl: string | null = null;
+    let activePaymentMethod: "UPI_QR_STATIC" | "UPI_QR_DYNAMIC" | null = null;
+
     try {
       const activeQR = (await prisma.qRCode.findFirst({
         where: { isActive: true, isPrimary: true },
@@ -148,6 +151,10 @@ export class BookingService {
       if (activeQR) {
         if (activeQR.upiId) payeeVpa = activeQR.upiId;
         if (activeQR.accountHolderName) payeeName = activeQR.accountHolderName;
+        if (activeQR.imageUrl) {
+          activeQrImageUrl = activeQR.imageUrl;
+          activePaymentMethod = "UPI_QR_STATIC";
+        }
       }
     } catch {
       // fallback to DEFAULT_MERCHANT_VPA
@@ -161,6 +168,8 @@ export class BookingService {
       transactionNote: `Booking for ${performer.name} - ${bookingCode}`,
       currency: "INR",
     });
+
+    const finalQrCodeUrl = activeQrImageUrl || qrCodeDataUrl;
 
     // 6. Create Booking and Payment atomically in a transaction
     const [booking, payment] = await prisma.$transaction(async (tx) => {
@@ -194,9 +203,9 @@ export class BookingService {
           bookingId: newBooking.id,
           amount: totalAmount,
           currency: "INR",
-          paymentMethod: data.paymentMethod || "UPI_QR_DYNAMIC",
+          paymentMethod: data.paymentMethod || activePaymentMethod || "UPI_QR_DYNAMIC",
           paymentStatus: "PENDING",
-          qrCodeUrl: qrCodeDataUrl,
+          qrCodeUrl: finalQrCodeUrl,
           upiPayload,
           transactionRef,
           expiresAt,
