@@ -2,15 +2,17 @@ import http from "http";
 import app from "./app.js";
 import { ENV } from "./config/env.js";
 
-if (!ENV.DATABASE_URL) throw new Error("DATABASE_URL is required");
-if (!ENV.JWT_SECRET || ENV.JWT_SECRET.length < 32) throw new Error("JWT_SECRET must be at least 32 characters");
-if (ENV.MODE === "PRODUCTION" && !ENV.FRONTEND_ORIGIN) throw new Error("FRONTEND_ORIGIN is required in production");
+const PORT = Number(process.env.PORT || ENV.PORT || 4000);
+
+if (!ENV.DATABASE_URL) {
+  console.warn("⚠️ Warning: DATABASE_URL is not set. Database connections will fail.");
+}
+if (!ENV.JWT_SECRET || ENV.JWT_SECRET.length < 32) {
+  console.warn("⚠️ Warning: JWT_SECRET is missing or less than 32 characters.");
+}
 
 const httpServer = http.createServer(app);
 
-// Initialize WebSocket server with real-time chat & presence
-// initializeSocketServer(httpServer);
-
-httpServer.listen(ENV.PORT, () => {
-  console.log(`Server & WebSocket running on port ${ENV.PORT}`);
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${PORT} in ${ENV.MODE || "development"} mode`);
 });

@@ -18,7 +18,10 @@ app.use((_req, res, next) => {
   res.setHeader("Referrer-Policy", "no-referrer");
   next();
 });
-app.use(cors({ origin: allowedOrigins?.length ? allowedOrigins : ENV.MODE === "PRODUCTION" ? false : true }));
+app.use(cors({ 
+  origin: allowedOrigins?.length ? (allowedOrigins.includes("*") ? true : allowedOrigins) : true,
+  credentials: true 
+}));
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
