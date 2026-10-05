@@ -134,11 +134,28 @@ export class BookingService {
     const transactionRef = `TXN-${bookingCode}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
     const expiresAt = new Date(Date.now() + QR_EXPIRY_MINUTES * 60 * 1000);
 
-    // 5. Generate Dynamic UPI QR Code
-    const payeeVpa = DEFAULT_MERCHANT_VPA;
+    // 5. Generate Dynamic UPI QR Code (using active platform QR config if available)
+    let payeeVpa = DEFAULT_MERCHANT_VPA;
+    let payeeName = "GarbaMitra Platform";
+
+    try {
+      const activeQR = (await prisma.qRCode.findFirst({
+        where: { isActive: true, isPrimary: true },
+      })) || (await prisma.qRCode.findFirst({
+        where: { isActive: true },
+      }));
+
+      if (activeQR) {
+        if (activeQR.upiId) payeeVpa = activeQR.upiId;
+        if (activeQR.accountHolderName) payeeName = activeQR.accountHolderName;
+      }
+    } catch {
+      // fallback to DEFAULT_MERCHANT_VPA
+    }
+
     const { upiPayload, qrCodeDataUrl } = await generateUpiQrCode({
       vpa: payeeVpa,
-      payeeName: "GarbaMitra Platform",
+      payeeName,
       amount: totalAmount,
       transactionRef,
       transactionNote: `Booking for ${performer.name} - ${bookingCode}`,

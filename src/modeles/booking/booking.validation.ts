@@ -53,7 +53,7 @@ export const initiateBookingSchema = z.object({
 
 export const submitPaymentProofSchema = z.object({
   utrNumber: z.string().min(6, "UTR Number must be at least 6 alphanumeric digits"),
-  paymentScreenshotUrl: z.string().url().optional(),
+  paymentScreenshotUrl: z.string().optional(),
 });
 
 export const updateBookingStatusSchema = z.object({
