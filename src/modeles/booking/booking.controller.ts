@@ -29,6 +29,7 @@ export class BookingController {
     }
   }
 
+  
   /**
    * POST /api/v1/bookings/:id/payment-proof
    * Submits 12-digit bank UTR / payment screenshot proof.
