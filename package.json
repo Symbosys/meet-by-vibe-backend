@@ -1,9 +1,11 @@
 {
   "name": "backend",
-  "module": "index.ts",
+  "main": "src/index.ts",
+  "module": "src/index.ts",
   "type": "module",
   "private": true,
   "scripts": {
+    "build": "bun run db:generate || npx prisma generate",
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test src",
