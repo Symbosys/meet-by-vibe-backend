@@ -278,6 +278,19 @@ export class BookingService {
           paymentStatus: "SUBMITTED",
         },
       });
+    } else {
+      await prisma.payment.create({
+        data: {
+          bookingId: booking.id,
+          amount: booking.totalAmount,
+          currency: "INR",
+          paymentMethod: "UPI_QR_DYNAMIC",
+          paymentStatus: "SUBMITTED",
+          utrNumber: data.utrNumber,
+          paymentScreenshotUrl: screenshotUrl,
+          transactionRef: `TXN-${booking.bookingCode}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+        },
+      });
     }
 
     const updatedBooking = await prisma.booking.update({
