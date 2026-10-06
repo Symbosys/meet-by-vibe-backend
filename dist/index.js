@@ -47,7 +47,8 @@ var init_env = __esm({
       azure_storage_container: process.env.AZURE_STORAGE_CONTAINER || "assets",
       azure_storage_connection_string: process.env.AZURE_STORAGE_CONNECTION_STRING,
       MODE: process.env.MODE,
-      OLA_MAPS_API_KEY: process.env.OLA_MAPS_API_KEY
+      OLA_MAPS_API_KEY: process.env.OLA_MAPS_API_KEY,
+      ADMIN_PIN: (process.env.ADMIN_PIN || "123456").trim()
     };
   }
 });
@@ -2856,6 +2857,66 @@ router4.post("/:id/rsvp", eventController.toggleRsvp.bind(eventController));
 router4.post("/:id/favorite", eventController.toggleFavorite.bind(eventController));
 var event_routes_default = router4;
 
+// src/modeles/auth/auth.routes.ts
+import { Router as Router5 } from "express";
+
+// src/modeles/auth/auth.service.ts
+init_env();
+init_types();
+init_response_util();
+import jwt from "jsonwebtoken";
+var AuthService = class {
+  /**
+   * Verify the 6-digit admin password/PIN
+   */
+  async verifyAdminPin(pin) {
+    if (!pin || typeof pin !== "string") {
+      throw new ErrorResponse("Please enter a valid 6-digit PIN", 400 /* Bad_Request */);
+    }
+    const trimmedPin = pin.trim();
+    if (trimmedPin.length !== 6) {
+      throw new ErrorResponse("PIN must be exactly 6 digits", 400 /* Bad_Request */);
+    }
+    const correctPin = (process.env.ADMIN_PIN || ENV.ADMIN_PIN || "123456").trim();
+    if (trimmedPin !== correctPin) {
+      throw new ErrorResponse("Invalid admin password. Access denied.", 401 /* Unauthorized */);
+    }
+    const secret = ENV.JWT_SECRET || "garba-admin-secret-key-2026";
+    const token = jwt.sign({ role: "ADMIN", access: "FULL" }, secret, { expiresIn: "7d" });
+    return {
+      authenticated: true,
+      token,
+      message: "Admin access granted successfully"
+    };
+  }
+};
+var authService = new AuthService();
+
+// src/modeles/auth/auth.controller.ts
+init_response_util();
+init_types();
+var AuthController = class {
+  /**
+   * POST /api/v1/auth/admin/verify-pin
+   * Verify the 6-digit admin security PIN
+   */
+  async verifyAdminPin(req, res, next) {
+    try {
+      const { pin } = req.body;
+      const result = await authService.verifyAdminPin(pin);
+      return SuccessResponse(res, result.message, result, 200 /* OK */);
+    } catch (err) {
+      next(err);
+    }
+  }
+};
+var authController = new AuthController();
+
+// src/modeles/auth/auth.routes.ts
+var router5 = Router5();
+router5.post("/admin/verify-pin", authController.verifyAdminPin);
+var auth_routes_default = router5;
+
 // src/app.ts
 var app = express();
 var allowedOrigins = ENV.FRONTEND_ORIGIN?.split(",").map((value) => value.trim()).filter(Boolean);
@@ -2873,6 +2934,7 @@ app.use(cors({
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 app.get("/", (_req, res) => res.status(200).json({ message: "Welcome to GarbaMitra API", success: true, mode: ENV.MODE }));
+app.use("/api/v1/auth", auth_routes_default);
 app.use("/api/v1/users", user_routes_default);
 app.use("/api/v1/bookings", booking_routes_default);
 app.use("/api/v1/qr", qr_routes_default);

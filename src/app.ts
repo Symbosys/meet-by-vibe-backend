@@ -9,6 +9,7 @@ import userRoutes from "./modeles/user/user.routes.js";
 import bookingRoutes from "./modeles/booking/booking.routes.js";
 import qrRoutes from "./modeles/qr/qr.routes.js";
 import eventRoutes from "./modeles/event/event.routes.js";
+import authRoutes from "./modeles/auth/auth.routes.js";
 
 const app = express();
 const allowedOrigins = ENV.FRONTEND_ORIGIN?.split(",").map((value) => value.trim()).filter(Boolean);
@@ -30,6 +31,7 @@ app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 app.get("/", (_req, res) => res.status(200).json({ message: "Welcome to GarbaMitra API", success: true, mode: ENV.MODE }));
 
 // API V1 Routes
+app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/bookings", bookingRoutes);
 app.use("/api/v1/qr", qrRoutes);
