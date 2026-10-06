@@ -58,6 +58,20 @@ enum PaymentMethod {
   GATEWAY_RAZORPAY
 }
 
+enum EventStatus {
+  DRAFT
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  GOING
+  INTERESTED
+  CANCELLED
+}
+
 // ----------------------------------------------------
 // MODELS
 // ----------------------------------------------------
@@ -112,6 +126,9 @@ model User {
   photos            UserPhoto[]
   bookingsMade      Booking[]   @relation("CustomerBookings")
   bookingsReceived  Booking[]   @relation("PerformerBookings")
+  organizedEvents   Event[]     @relation("OrganizerEvents")
+  attendingEvents   EventAttendee[] @relation("UserAttendingEvents")
+  favoriteEvents    EventFavorite[] @relation("UserFavoriteEvents")
 
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
@@ -233,4 +250,103 @@ model QRCode {
 
   @@index([isActive, isPrimary])
   @@map("qr_codes")
+}
+
+model Event {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title                 String
+  slug                  String?           @unique
+  description           String            @db.Text
+  
+  // Media / Banners
+  imageUrl              String            @db.Text
+  galleryImages         String[]          @default([])
+  
+  // Schedule & Timing
+  eventDate             DateTime          @db.Date
+  endDate               DateTime?         @db.Date
+  startTime             String            // e.g. "07:30 PM"
+  endTime               String?           // e.g. "01:00 AM"
+  
+  // Venue & Location
+  venue                 String
+  address               String?
+  city                  String
+  state                 String
+  pincode               String?
+  latitude              Decimal?          @db.Decimal(10, 7)
+  longitude             Decimal?          @db.Decimal(10, 7)
+  
+  // Ticketing & Capacity
+  pricePerPass          Decimal?          @default(0) @db.Decimal(10, 2)
+  totalCapacity         Int?
+  
+  // Flags & Visibility
+  isFeatured            Boolean           @default(false)
+  isActive              Boolean           @default(true)
+  status                EventStatus       @default(UPCOMING)
+  
+  // Organizer Link
+  organizerId           String?           @db.Uuid
+  organizer             User?             @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: SetNull)
+  organizerName         String?
+  organizerContact      String?
+  
+  // Guidelines & Dress Code
+  dressCode             String?           @default("Traditional Garba Attire")
+  rules                 String[]          @default([])
+
+  // Relational Links
+  attendees             EventAttendee[]
+  favoritedBy           EventFavorite[]
+
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@index([city, eventDate, status])
+  @@index([isFeatured, status])
+  @@index([eventDate])
+  @@index([organizerId])
+  @@map("events")
+}
+
+model EventAttendee {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  
+  eventId               String            @db.Uuid
+  event                 Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  
+  userId                String            @db.Uuid
+  user                  User              @relation("UserAttendingEvents", fields: [userId], references: [id], onDelete: Cascade)
+  
+  status                AttendanceStatus  @default(GOING)
+  lookingForPartner     Boolean           @default(false)
+  
+  passCount             Int               @default(1)
+  notes                 String?
+
+  joinedAt              DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@unique([eventId, userId])
+  @@index([eventId, lookingForPartner])
+  @@index([userId])
+  @@map("event_attendees")
+}
+
+model EventFavorite {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  
+  eventId               String            @db.Uuid
+  event                 Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  
+  userId                String            @db.Uuid
+  user                  User              @relation("UserFavoriteEvents", fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt             DateTime          @default(now())
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@index([eventId])
+  @@map("event_favorites")
 }

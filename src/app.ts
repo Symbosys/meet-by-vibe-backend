@@ -8,6 +8,7 @@ import { ErrorResponse } from "./utils/response.util.js";
 import userRoutes from "./modeles/user/user.routes.js";
 import bookingRoutes from "./modeles/booking/booking.routes.js";
 import qrRoutes from "./modeles/qr/qr.routes.js";
+import eventRoutes from "./modeles/event/event.routes.js";
 
 const app = express();
 const allowedOrigins = ENV.FRONTEND_ORIGIN?.split(",").map((value) => value.trim()).filter(Boolean);
@@ -32,6 +33,7 @@ app.get("/", (_req, res) => res.status(200).json({ message: "Welcome to GarbaMit
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/bookings", bookingRoutes);
 app.use("/api/v1/qr", qrRoutes);
+app.use("/api/v1/events", eventRoutes);
 
 app.use((_req, _res, next) => next(new ErrorResponse("Route not found", statusCode.Not_Found)));
 app.use(errorMiddleware);
