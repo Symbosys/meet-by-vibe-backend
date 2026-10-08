@@ -1,14 +1,14 @@
-import { prisma } from "../../lib/prisma.js";
-import { hashPassword } from "../../utils/password.util.js";
-import { normalizeEmail, normalizePhone } from "../../utils/normalization.util.js";
-import { uploadImages } from "../../utils/upload.util.js";
-import { ErrorResponse } from "../../utils/response.util.js";
-import { statusCode } from "../../types/types.js";
 import type { z } from "zod";
-import type { 
-  createUserSchema, 
-  updateUserSchema, 
-  queryUsersSchema 
+import { prisma } from "../../lib/prisma.js";
+import { statusCode } from "../../types/types.js";
+import { normalizeEmail, normalizePhone } from "../../utils/normalization.util.js";
+import { hashPassword } from "../../utils/password.util.js";
+import { ErrorResponse } from "../../utils/response.util.js";
+import { uploadImages } from "../../utils/upload.util.js";
+import type {
+    createUserSchema,
+    queryUsersSchema,
+    updateUserSchema
 } from "./user.validation.js";
 
 export class UserService {
@@ -173,12 +173,13 @@ export class UserService {
   }
 
   /**
-   * UPDATE: Update user/model details and optional avatar
+   * UPDATE: Update user/model details, optional avatar, and optional gallery photos
    */
   async update(
     userId: string,
     data: z.infer<typeof updateUserSchema>,
-    avatarFile?: Express.Multer.File
+    avatarFile?: Express.Multer.File,
+    photoFiles?: Express.Multer.File[]
   ) {
     const existing = await prisma.user.findUnique({ where: { id: userId } });
     if (!existing) {
@@ -189,6 +190,11 @@ export class UserService {
     if (avatarFile) {
       const [uploaded] = await uploadImages([avatarFile], "garba/avatars");
       avatarUrl = uploaded?.url || avatarUrl;
+    }
+
+    // Upload new gallery photos if provided
+    if (photoFiles && photoFiles.length > 0) {
+      await this.uploadGalleryPhotos(userId, photoFiles);
     }
 
     const updated = await prisma.user.update({

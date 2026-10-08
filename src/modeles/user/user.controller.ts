@@ -1,11 +1,11 @@
-import type { Request, Response, NextFunction } from "express";
-import { userService } from "./user.service.js";
-import { SuccessResponse } from "../../utils/response.util.js";
+import type { NextFunction, Request, Response } from "express";
 import { statusCode } from "../../types/types.js";
-import { 
-  createUserSchema, 
-  updateUserSchema, 
-  queryUsersSchema 
+import { SuccessResponse } from "../../utils/response.util.js";
+import { userService } from "./user.service.js";
+import {
+    createUserSchema,
+    queryUsersSchema,
+    updateUserSchema
 } from "./user.validation.js";
 
 export class UserController {
@@ -16,9 +16,35 @@ export class UserController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const validated = createUserSchema.parse(req.body);
-      const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
-      const avatarFile = files?.avatar?.[0] || (req.file?.fieldname === "avatar" ? req.file : undefined);
-      const photoFiles = files?.photos;
+      let avatarFile: Express.Multer.File | undefined = undefined;
+      let photoFiles: Express.Multer.File[] | undefined = undefined;
+
+      if (Array.isArray(req.files)) {
+        avatarFile = req.files.find((f) => f.fieldname === "avatar");
+        const photos = req.files.filter(
+          (f) =>
+            f.fieldname === "photos" ||
+            f.fieldname === "photo" ||
+            f.fieldname === "images" ||
+            f.fieldname === "gallery" ||
+            f.fieldname === "files" ||
+            f.fieldname.startsWith("photo")
+        );
+        if (photos.length > 0) photoFiles = photos;
+        if (!avatarFile && (!photoFiles || photoFiles.length === 0) && req.files.length > 0) {
+          avatarFile = req.files[0];
+        }
+      } else if (req.files && typeof req.files === "object") {
+        const filesDict = req.files as { [fieldname: string]: Express.Multer.File[] };
+        avatarFile = filesDict.avatar?.[0];
+        photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
+      } else if (req.file) {
+        if (req.file.fieldname === "avatar") {
+          avatarFile = req.file;
+        } else {
+          photoFiles = [req.file];
+        }
+      }
 
       const user = await userService.create(validated, avatarFile, photoFiles);
       return SuccessResponse(res, "User model created successfully", user, statusCode.Created);
@@ -56,13 +82,46 @@ export class UserController {
 
   /**
    * UPDATE: PATCH /api/v1/users/:id
-   * Update user details (bio, rate, availability, height, dance styles, avatar)
+   * Update user details (bio, rate, availability, height, dance styles, avatar, gallery photos)
    */
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const validated = updateUserSchema.parse(req.body);
-      const avatarFile = req.file;
-      const updated = await userService.update(req.params.id as string, validated, avatarFile);
+      let avatarFile: Express.Multer.File | undefined = undefined;
+      let photoFiles: Express.Multer.File[] | undefined = undefined;
+
+      if (Array.isArray(req.files)) {
+        avatarFile = req.files.find((f) => f.fieldname === "avatar");
+        const photos = req.files.filter(
+          (f) =>
+            f.fieldname === "photos" ||
+            f.fieldname === "photo" ||
+            f.fieldname === "images" ||
+            f.fieldname === "gallery" ||
+            f.fieldname === "files" ||
+            f.fieldname.startsWith("photo")
+        );
+        if (photos.length > 0) photoFiles = photos;
+        if (!avatarFile && (!photoFiles || photoFiles.length === 0) && req.files.length > 0) {
+          if (req.files[0].fieldname === "avatar") {
+            avatarFile = req.files[0];
+          } else {
+            photoFiles = req.files;
+          }
+        }
+      } else if (req.files && typeof req.files === "object") {
+        const filesDict = req.files as { [fieldname: string]: Express.Multer.File[] };
+        avatarFile = filesDict.avatar?.[0];
+        photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
+      } else if (req.file) {
+        if (req.file.fieldname === "avatar") {
+          avatarFile = req.file;
+        } else {
+          photoFiles = [req.file];
+        }
+      }
+
+      const updated = await userService.update(req.params.id as string, validated, avatarFile, photoFiles);
       return SuccessResponse(res, "User model updated successfully", updated);
     } catch (err) {
       next(err);
@@ -88,7 +147,15 @@ export class UserController {
    */
   async uploadPhotos(req: Request, res: Response, next: NextFunction) {
     try {
-      const files = req.files as Express.Multer.File[];
+      let files: Express.Multer.File[] = [];
+      if (Array.isArray(req.files)) {
+        files = req.files;
+      } else if (req.files && typeof req.files === "object") {
+        files = Object.values(req.files).flat();
+      } else if (req.file) {
+        files = [req.file];
+      }
+
       if (!files || files.length === 0) {
         return SuccessResponse(res, "No files uploaded", [], statusCode.Bad_Request);
       }

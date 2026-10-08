@@ -635,6 +635,137 @@ init_response_util();
 // src/modeles/user/user.routes.ts
 import { Router } from "express";
 
+// src/middlewares/upload.middleware.ts
+init_response_util();
+init_types();
+import multer from "multer";
+var MIME_PRESETS = {
+  image: [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/svg+xml",
+    "image/gif"
+  ],
+  document: [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/plain",
+    "text/csv"
+  ],
+  media: [
+    "video/mp4",
+    "video/webm",
+    "audio/mpeg",
+    "audio/wav"
+  ]
+};
+var DEFAULT_MAX_SIZE = 5 * 1024 * 1024;
+var memoryStorage = multer.memoryStorage();
+function parseMultipartBody(req) {
+  if (!req.body || typeof req.body !== "object") return;
+  for (const key of Object.keys(req.body)) {
+    const val = req.body[key];
+    if (typeof val === "string") {
+      const trimmed = val.trim();
+      if (trimmed.startsWith("{") && trimmed.endsWith("}") || trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        try {
+          req.body[key] = JSON.parse(trimmed);
+        } catch {
+        }
+      }
+    }
+  }
+}
+function createMulter(options) {
+  const category = options?.category ?? "image";
+  const allowedMimes = options?.allowedMimeTypes ?? (category === "all" ? [] : MIME_PRESETS[category] || []);
+  const maxSize = options?.maxFileSize ?? DEFAULT_MAX_SIZE;
+  return multer({
+    storage: memoryStorage,
+    limits: { fileSize: maxSize, files: 10, fields: 30, parts: 40, fieldSize: 100 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (allowedMimes.length === 0 || allowedMimes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(
+          new ErrorResponse(
+            `Unsupported file format: ${file.mimetype}. Allowed formats: ${allowedMimes.join(", ")}`,
+            400 /* Bad_Request */
+          )
+        );
+      }
+    }
+  });
+}
+function wrapMiddleware(uploader, maxSize = DEFAULT_MAX_SIZE) {
+  return (req, res, next) => {
+    uploader(req, res, (err) => {
+      if (err) {
+        if (err instanceof multer.MulterError) {
+          if (err.code === "LIMIT_FILE_SIZE") {
+            const mb = Math.round(maxSize / (1024 * 1024));
+            return next(
+              new ErrorResponse(
+                `File size limit exceeded. Maximum allowed: ${mb}MB`,
+                400 /* Bad_Request */
+              )
+            );
+          }
+          return next(new ErrorResponse(err.message, 400 /* Bad_Request */));
+        }
+        return next(err);
+      }
+      parseMultipartBody(req);
+      next();
+    });
+  };
+}
+var upload = {
+  /**
+   * Single file upload middleware.
+   * @param fieldName The multipart form field name (e.g., 'logo', 'avatar', 'file')
+   */
+  single(fieldName = "file", options) {
+    const uploader = createMulter(options).single(fieldName);
+    return wrapMiddleware(uploader, options?.maxFileSize);
+  },
+  /**
+   * Multiple files upload middleware under the same field name.
+   */
+  array(fieldName = "files", maxCount = 10, options) {
+    const uploader = createMulter(options).array(fieldName, maxCount);
+    return wrapMiddleware(uploader, options?.maxFileSize);
+  },
+  /**
+   * Multiple fields upload middleware with distinct field names.
+   */
+  fields(fields, options) {
+    const uploader = createMulter(options).fields(fields);
+    return wrapMiddleware(uploader, options?.maxFileSize);
+  },
+  /**
+   * Accepts any files sent over multipart.
+   */
+  any(options) {
+    const uploader = createMulter(options).any();
+    return wrapMiddleware(uploader, options?.maxFileSize);
+  },
+  /**
+   * Accepts only multipart fields without any files.
+   */
+  none() {
+    return wrapMiddleware(multer().none());
+  }
+};
+
+// src/modeles/user/user.controller.ts
+init_types();
+init_response_util();
+
 // src/lib/prisma.ts
 import { PrismaPg } from "@prisma/adapter-pg";
 
@@ -710,7 +841,7 @@ var adapter = new PrismaPg({ connectionString: ENV.DATABASE_URL });
 var prisma = new PrismaClient({ adapter });
 
 // src/modeles/user/user.service.ts
-init_password_util();
+init_types();
 
 // src/utils/normalization.util.ts
 init_types();
@@ -738,9 +869,9 @@ function normalizePhone(value) {
 }
 
 // src/modeles/user/user.service.ts
-init_upload_util();
+init_password_util();
 init_response_util();
-init_types();
+init_upload_util();
 var UserService = class {
   /**
    * CREATE: Create a new User / Performer model
@@ -876,9 +1007,9 @@ var UserService = class {
     return safeUser;
   }
   /**
-   * UPDATE: Update user/model details and optional avatar
+   * UPDATE: Update user/model details, optional avatar, and optional gallery photos
    */
-  async update(userId, data, avatarFile) {
+  async update(userId, data, avatarFile, photoFiles) {
     const existing = await prisma.user.findUnique({ where: { id: userId } });
     if (!existing) {
       throw new ErrorResponse("User model not found", 404 /* Not_Found */);
@@ -887,6 +1018,9 @@ var UserService = class {
     if (avatarFile) {
       const [uploaded] = await uploadImages([avatarFile], "garba/avatars");
       avatarUrl = uploaded?.url || avatarUrl;
+    }
+    if (photoFiles && photoFiles.length > 0) {
+      await this.uploadGalleryPhotos(userId, photoFiles);
     }
     const updated = await prisma.user.update({
       where: { id: userId },
@@ -991,10 +1125,6 @@ var UserService = class {
 };
 var userService = new UserService();
 
-// src/modeles/user/user.controller.ts
-init_response_util();
-init_types();
-
 // src/modeles/user/user.validation.ts
 import { z } from "zod";
 var RoleEnum = z.enum(["CUSTOMER", "PERFORMER", "ORGANIZER", "ADMIN"]);
@@ -1073,9 +1203,28 @@ var UserController = class {
   async create(req, res, next) {
     try {
       const validated = createUserSchema.parse(req.body);
-      const files = req.files;
-      const avatarFile = files?.avatar?.[0] || (req.file?.fieldname === "avatar" ? req.file : void 0);
-      const photoFiles = files?.photos;
+      let avatarFile = void 0;
+      let photoFiles = void 0;
+      if (Array.isArray(req.files)) {
+        avatarFile = req.files.find((f) => f.fieldname === "avatar");
+        const photos = req.files.filter(
+          (f) => f.fieldname === "photos" || f.fieldname === "photo" || f.fieldname === "images" || f.fieldname === "gallery" || f.fieldname === "files" || f.fieldname.startsWith("photo")
+        );
+        if (photos.length > 0) photoFiles = photos;
+        if (!avatarFile && (!photoFiles || photoFiles.length === 0) && req.files.length > 0) {
+          avatarFile = req.files[0];
+        }
+      } else if (req.files && typeof req.files === "object") {
+        const filesDict = req.files;
+        avatarFile = filesDict.avatar?.[0];
+        photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
+      } else if (req.file) {
+        if (req.file.fieldname === "avatar") {
+          avatarFile = req.file;
+        } else {
+          photoFiles = [req.file];
+        }
+      }
       const user = await userService.create(validated, avatarFile, photoFiles);
       return SuccessResponse(res, "User model created successfully", user, 201 /* Created */);
     } catch (err) {
@@ -1109,13 +1258,38 @@ var UserController = class {
   }
   /**
    * UPDATE: PATCH /api/v1/users/:id
-   * Update user details (bio, rate, availability, height, dance styles, avatar)
+   * Update user details (bio, rate, availability, height, dance styles, avatar, gallery photos)
    */
   async update(req, res, next) {
     try {
       const validated = updateUserSchema.parse(req.body);
-      const avatarFile = req.file;
-      const updated = await userService.update(req.params.id, validated, avatarFile);
+      let avatarFile = void 0;
+      let photoFiles = void 0;
+      if (Array.isArray(req.files)) {
+        avatarFile = req.files.find((f) => f.fieldname === "avatar");
+        const photos = req.files.filter(
+          (f) => f.fieldname === "photos" || f.fieldname === "photo" || f.fieldname === "images" || f.fieldname === "gallery" || f.fieldname === "files" || f.fieldname.startsWith("photo")
+        );
+        if (photos.length > 0) photoFiles = photos;
+        if (!avatarFile && (!photoFiles || photoFiles.length === 0) && req.files.length > 0) {
+          if (req.files[0].fieldname === "avatar") {
+            avatarFile = req.files[0];
+          } else {
+            photoFiles = req.files;
+          }
+        }
+      } else if (req.files && typeof req.files === "object") {
+        const filesDict = req.files;
+        avatarFile = filesDict.avatar?.[0];
+        photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
+      } else if (req.file) {
+        if (req.file.fieldname === "avatar") {
+          avatarFile = req.file;
+        } else {
+          photoFiles = [req.file];
+        }
+      }
+      const updated = await userService.update(req.params.id, validated, avatarFile, photoFiles);
       return SuccessResponse(res, "User model updated successfully", updated);
     } catch (err) {
       next(err);
@@ -1139,7 +1313,14 @@ var UserController = class {
    */
   async uploadPhotos(req, res, next) {
     try {
-      const files = req.files;
+      let files = [];
+      if (Array.isArray(req.files)) {
+        files = req.files;
+      } else if (req.files && typeof req.files === "object") {
+        files = Object.values(req.files).flat();
+      } else if (req.file) {
+        files = [req.file];
+      }
       if (!files || files.length === 0) {
         return SuccessResponse(res, "No files uploaded", [], 400 /* Bad_Request */);
       }
@@ -1180,154 +1361,24 @@ var UserController = class {
 };
 var userController = new UserController();
 
-// src/middlewares/upload.middleware.ts
-init_response_util();
-init_types();
-import multer from "multer";
-var MIME_PRESETS = {
-  image: [
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "image/svg+xml",
-    "image/gif"
-  ],
-  document: [
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "text/plain",
-    "text/csv"
-  ],
-  media: [
-    "video/mp4",
-    "video/webm",
-    "audio/mpeg",
-    "audio/wav"
-  ]
-};
-var DEFAULT_MAX_SIZE = 5 * 1024 * 1024;
-var memoryStorage = multer.memoryStorage();
-function parseMultipartBody(req) {
-  if (!req.body || typeof req.body !== "object") return;
-  for (const key of Object.keys(req.body)) {
-    const val = req.body[key];
-    if (typeof val === "string") {
-      const trimmed = val.trim();
-      if (trimmed.startsWith("{") && trimmed.endsWith("}") || trimmed.startsWith("[") && trimmed.endsWith("]")) {
-        try {
-          req.body[key] = JSON.parse(trimmed);
-        } catch {
-        }
-      }
-    }
-  }
-}
-function createMulter(options) {
-  const category = options?.category ?? "image";
-  const allowedMimes = options?.allowedMimeTypes ?? (category === "all" ? [] : MIME_PRESETS[category] || []);
-  const maxSize = options?.maxFileSize ?? DEFAULT_MAX_SIZE;
-  return multer({
-    storage: memoryStorage,
-    limits: { fileSize: maxSize, files: 10, fields: 30, parts: 40, fieldSize: 100 * 1024 },
-    fileFilter: (_req, file, cb) => {
-      if (allowedMimes.length === 0 || allowedMimes.includes(file.mimetype)) {
-        cb(null, true);
-      } else {
-        cb(
-          new ErrorResponse(
-            `Unsupported file format: ${file.mimetype}. Allowed formats: ${allowedMimes.join(", ")}`,
-            400 /* Bad_Request */
-          )
-        );
-      }
-    }
-  });
-}
-function wrapMiddleware(uploader, maxSize = DEFAULT_MAX_SIZE) {
-  return (req, res, next) => {
-    uploader(req, res, (err) => {
-      if (err) {
-        if (err instanceof multer.MulterError) {
-          if (err.code === "LIMIT_FILE_SIZE") {
-            const mb = Math.round(maxSize / (1024 * 1024));
-            return next(
-              new ErrorResponse(
-                `File size limit exceeded. Maximum allowed: ${mb}MB`,
-                400 /* Bad_Request */
-              )
-            );
-          }
-          return next(new ErrorResponse(err.message, 400 /* Bad_Request */));
-        }
-        return next(err);
-      }
-      parseMultipartBody(req);
-      next();
-    });
-  };
-}
-var upload = {
-  /**
-   * Single file upload middleware.
-   * @param fieldName The multipart form field name (e.g., 'logo', 'avatar', 'file')
-   */
-  single(fieldName = "file", options) {
-    const uploader = createMulter(options).single(fieldName);
-    return wrapMiddleware(uploader, options?.maxFileSize);
-  },
-  /**
-   * Multiple files upload middleware under the same field name.
-   */
-  array(fieldName = "files", maxCount = 10, options) {
-    const uploader = createMulter(options).array(fieldName, maxCount);
-    return wrapMiddleware(uploader, options?.maxFileSize);
-  },
-  /**
-   * Multiple fields upload middleware with distinct field names.
-   */
-  fields(fields, options) {
-    const uploader = createMulter(options).fields(fields);
-    return wrapMiddleware(uploader, options?.maxFileSize);
-  },
-  /**
-   * Accepts any files sent over multipart.
-   */
-  any(options) {
-    const uploader = createMulter(options).any();
-    return wrapMiddleware(uploader, options?.maxFileSize);
-  },
-  /**
-   * Accepts only multipart fields without any files.
-   */
-  none() {
-    return wrapMiddleware(multer().none());
-  }
-};
-
 // src/modeles/user/user.routes.ts
 var router = Router();
 router.post(
   "/",
-  upload.fields([
-    { name: "avatar", maxCount: 1 },
-    { name: "photos", maxCount: 10 }
-  ]),
+  upload.any(),
   userController.create.bind(userController)
 );
 router.get("/", userController.getAll.bind(userController));
 router.get("/:id", userController.getById.bind(userController));
 router.patch(
   "/:id",
-  upload.single("avatar"),
+  upload.any(),
   userController.update.bind(userController)
 );
 router.delete("/:id", userController.delete.bind(userController));
 router.post(
   "/:id/photos",
-  upload.array("photos", 10),
+  upload.any(),
   userController.uploadPhotos.bind(userController)
 );
 router.delete("/:id/photos/:photoId", userController.deletePhoto.bind(userController));
