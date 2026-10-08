@@ -1195,6 +1195,36 @@ var queryUsersSchema = z.object({
 });
 
 // src/modeles/user/user.controller.ts
+function extractFiles(req) {
+  let avatarFile = void 0;
+  let photoFiles = void 0;
+  if (Array.isArray(req.files)) {
+    avatarFile = req.files.find((f) => f.fieldname === "avatar");
+    const photos = req.files.filter(
+      (f) => f.fieldname === "photos" || f.fieldname === "photo" || f.fieldname === "images" || f.fieldname === "gallery" || f.fieldname === "files" || f.fieldname.startsWith("photo")
+    );
+    if (photos.length > 0) photoFiles = photos;
+    const firstFile = req.files[0];
+    if (!avatarFile && (!photoFiles || photoFiles.length === 0) && firstFile) {
+      if (firstFile.fieldname === "avatar") {
+        avatarFile = firstFile;
+      } else {
+        photoFiles = req.files;
+      }
+    }
+  } else if (req.files && typeof req.files === "object") {
+    const filesDict = req.files;
+    avatarFile = filesDict.avatar?.[0];
+    photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
+  } else if (req.file) {
+    if (req.file.fieldname === "avatar") {
+      avatarFile = req.file;
+    } else {
+      photoFiles = [req.file];
+    }
+  }
+  return { avatarFile, photoFiles };
+}
 var UserController = class {
   /**
    * CREATE: POST /api/v1/users
@@ -1203,28 +1233,7 @@ var UserController = class {
   async create(req, res, next) {
     try {
       const validated = createUserSchema.parse(req.body);
-      let avatarFile = void 0;
-      let photoFiles = void 0;
-      if (Array.isArray(req.files)) {
-        avatarFile = req.files.find((f) => f.fieldname === "avatar");
-        const photos = req.files.filter(
-          (f) => f.fieldname === "photos" || f.fieldname === "photo" || f.fieldname === "images" || f.fieldname === "gallery" || f.fieldname === "files" || f.fieldname.startsWith("photo")
-        );
-        if (photos.length > 0) photoFiles = photos;
-        if (!avatarFile && (!photoFiles || photoFiles.length === 0) && req.files.length > 0) {
-          avatarFile = req.files[0];
-        }
-      } else if (req.files && typeof req.files === "object") {
-        const filesDict = req.files;
-        avatarFile = filesDict.avatar?.[0];
-        photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
-      } else if (req.file) {
-        if (req.file.fieldname === "avatar") {
-          avatarFile = req.file;
-        } else {
-          photoFiles = [req.file];
-        }
-      }
+      const { avatarFile, photoFiles } = extractFiles(req);
       const user = await userService.create(validated, avatarFile, photoFiles);
       return SuccessResponse(res, "User model created successfully", user, 201 /* Created */);
     } catch (err) {
@@ -1263,32 +1272,7 @@ var UserController = class {
   async update(req, res, next) {
     try {
       const validated = updateUserSchema.parse(req.body);
-      let avatarFile = void 0;
-      let photoFiles = void 0;
-      if (Array.isArray(req.files)) {
-        avatarFile = req.files.find((f) => f.fieldname === "avatar");
-        const photos = req.files.filter(
-          (f) => f.fieldname === "photos" || f.fieldname === "photo" || f.fieldname === "images" || f.fieldname === "gallery" || f.fieldname === "files" || f.fieldname.startsWith("photo")
-        );
-        if (photos.length > 0) photoFiles = photos;
-        if (!avatarFile && (!photoFiles || photoFiles.length === 0) && req.files.length > 0) {
-          if (req.files[0].fieldname === "avatar") {
-            avatarFile = req.files[0];
-          } else {
-            photoFiles = req.files;
-          }
-        }
-      } else if (req.files && typeof req.files === "object") {
-        const filesDict = req.files;
-        avatarFile = filesDict.avatar?.[0];
-        photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
-      } else if (req.file) {
-        if (req.file.fieldname === "avatar") {
-          avatarFile = req.file;
-        } else {
-          photoFiles = [req.file];
-        }
-      }
+      const { avatarFile, photoFiles } = extractFiles(req);
       const updated = await userService.update(req.params.id, validated, avatarFile, photoFiles);
       return SuccessResponse(res, "User model updated successfully", updated);
     } catch (err) {

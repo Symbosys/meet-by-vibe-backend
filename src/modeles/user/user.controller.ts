@@ -8,6 +8,49 @@ import {
     updateUserSchema
 } from "./user.validation.js";
 
+function extractFiles(req: Request): {
+  avatarFile: Express.Multer.File | undefined;
+  photoFiles: Express.Multer.File[] | undefined;
+} {
+  let avatarFile: Express.Multer.File | undefined = undefined;
+  let photoFiles: Express.Multer.File[] | undefined = undefined;
+
+  if (Array.isArray(req.files)) {
+    avatarFile = req.files.find((f) => f.fieldname === "avatar");
+    const photos = req.files.filter(
+      (f) =>
+        f.fieldname === "photos" ||
+        f.fieldname === "photo" ||
+        f.fieldname === "images" ||
+        f.fieldname === "gallery" ||
+        f.fieldname === "files" ||
+        f.fieldname.startsWith("photo")
+    );
+    if (photos.length > 0) photoFiles = photos;
+
+    const firstFile = req.files[0];
+    if (!avatarFile && (!photoFiles || photoFiles.length === 0) && firstFile) {
+      if (firstFile.fieldname === "avatar") {
+        avatarFile = firstFile;
+      } else {
+        photoFiles = req.files;
+      }
+    }
+  } else if (req.files && typeof req.files === "object") {
+    const filesDict = req.files as { [fieldname: string]: Express.Multer.File[] };
+    avatarFile = filesDict.avatar?.[0];
+    photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
+  } else if (req.file) {
+    if (req.file.fieldname === "avatar") {
+      avatarFile = req.file;
+    } else {
+      photoFiles = [req.file];
+    }
+  }
+
+  return { avatarFile, photoFiles };
+}
+
 export class UserController {
   /**
    * CREATE: POST /api/v1/users
@@ -16,36 +59,7 @@ export class UserController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const validated = createUserSchema.parse(req.body);
-      let avatarFile: Express.Multer.File | undefined = undefined;
-      let photoFiles: Express.Multer.File[] | undefined = undefined;
-
-      if (Array.isArray(req.files)) {
-        avatarFile = req.files.find((f) => f.fieldname === "avatar");
-        const photos = req.files.filter(
-          (f) =>
-            f.fieldname === "photos" ||
-            f.fieldname === "photo" ||
-            f.fieldname === "images" ||
-            f.fieldname === "gallery" ||
-            f.fieldname === "files" ||
-            f.fieldname.startsWith("photo")
-        );
-        if (photos.length > 0) photoFiles = photos;
-        if (!avatarFile && (!photoFiles || photoFiles.length === 0) && req.files.length > 0) {
-          avatarFile = req.files[0];
-        }
-      } else if (req.files && typeof req.files === "object") {
-        const filesDict = req.files as { [fieldname: string]: Express.Multer.File[] };
-        avatarFile = filesDict.avatar?.[0];
-        photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
-      } else if (req.file) {
-        if (req.file.fieldname === "avatar") {
-          avatarFile = req.file;
-        } else {
-          photoFiles = [req.file];
-        }
-      }
-
+      const { avatarFile, photoFiles } = extractFiles(req);
       const user = await userService.create(validated, avatarFile, photoFiles);
       return SuccessResponse(res, "User model created successfully", user, statusCode.Created);
     } catch (err) {
@@ -87,40 +101,7 @@ export class UserController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const validated = updateUserSchema.parse(req.body);
-      let avatarFile: Express.Multer.File | undefined = undefined;
-      let photoFiles: Express.Multer.File[] | undefined = undefined;
-
-      if (Array.isArray(req.files)) {
-        avatarFile = req.files.find((f) => f.fieldname === "avatar");
-        const photos = req.files.filter(
-          (f) =>
-            f.fieldname === "photos" ||
-            f.fieldname === "photo" ||
-            f.fieldname === "images" ||
-            f.fieldname === "gallery" ||
-            f.fieldname === "files" ||
-            f.fieldname.startsWith("photo")
-        );
-        if (photos.length > 0) photoFiles = photos;
-        if (!avatarFile && (!photoFiles || photoFiles.length === 0) && req.files.length > 0) {
-          if (req.files[0].fieldname === "avatar") {
-            avatarFile = req.files[0];
-          } else {
-            photoFiles = req.files;
-          }
-        }
-      } else if (req.files && typeof req.files === "object") {
-        const filesDict = req.files as { [fieldname: string]: Express.Multer.File[] };
-        avatarFile = filesDict.avatar?.[0];
-        photoFiles = filesDict.photos || filesDict.photo || filesDict.images || filesDict.files;
-      } else if (req.file) {
-        if (req.file.fieldname === "avatar") {
-          avatarFile = req.file;
-        } else {
-          photoFiles = [req.file];
-        }
-      }
-
+      const { avatarFile, photoFiles } = extractFiles(req);
       const updated = await userService.update(req.params.id as string, validated, avatarFile, photoFiles);
       return SuccessResponse(res, "User model updated successfully", updated);
     } catch (err) {
