@@ -126,8 +126,8 @@ export class BookingService {
     }
 
     // 4. Calculate Financials
-    const hourlyRate = performer.hourlyRate ? Number(performer.hourlyRate) : 1000;
-    const totalAmount = parseFloat((durationHours * hourlyRate).toFixed(2));
+    const hourlyRate = performer.hourlyRate ? Number(performer.hourlyRate) : 399;
+    const totalAmount = hourlyRate;
     const advanceAmount = totalAmount; // 100% advance or customizable
 
     const bookingCode = generateBookingCode();

@@ -1473,8 +1473,8 @@ var BookingService = class {
         409 /* Conflict */
       );
     }
-    const hourlyRate = performer.hourlyRate ? Number(performer.hourlyRate) : 1e3;
-    const totalAmount = parseFloat((durationHours * hourlyRate).toFixed(2));
+    const hourlyRate = performer.hourlyRate ? Number(performer.hourlyRate) : 399;
+    const totalAmount = hourlyRate;
     const advanceAmount = totalAmount;
     const bookingCode = generateBookingCode();
     const transactionRef = `TXN-${bookingCode}-${crypto2.randomBytes(3).toString("hex").toUpperCase()}`;
