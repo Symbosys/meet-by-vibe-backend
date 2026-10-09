@@ -61,45 +61,6 @@ export class BookingService {
       throw new ErrorResponse("Performer is currently unavailable for bookings", statusCode.Conflict);
     }
 
-    // Resolve or Auto-Create Customer account for seamless bookings
-    let customer = data.customerId ? await prisma.user.findUnique({ where: { id: data.customerId } }) : null;
-    if (!customer) {
-      customer = await prisma.user.findFirst({
-        where: {
-          OR: [{ email: data.email }, { phone: data.phone }],
-        },
-      });
-    }
-
-    if (!customer) {
-      const { hashPassword } = await import("../../utils/password.util.js");
-      const defaultHash = await hashPassword("Customer@123");
-      customer = await prisma.user.create({
-        data: {
-          name: data.name,
-          email: data.email,
-          phone: data.phone,
-          avatarUrl: data.avatarUrl || null,
-          passwordHash: defaultHash,
-          gender: data.gender,
-          role: "CUSTOMER",
-          address: data.address,
-          city: data.city || "Ahmedabad",
-          state: "Gujarat",
-        },
-      });
-    } else if (data.avatarUrl) {
-      customer = await prisma.user.update({
-        where: { id: customer.id },
-        data: {
-          avatarUrl: data.avatarUrl,
-          name: data.name,
-          gender: data.gender,
-          address: data.address,
-        },
-      });
-    }
-
     // 2. Parse & validate dates
     const bDate = new Date(data.bookingDate);
     const start = new Date(data.startTime);
@@ -181,7 +142,6 @@ export class BookingService {
           phone: data.phone,
           address: data.address,
           gender: data.gender,
-          customerId: customer.id,
           performerId: data.performerId,
           bookingDate: bDate,
           startTime: start,
@@ -297,7 +257,6 @@ export class BookingService {
       where: { id: bookingId },
       data: { status: "PAYMENT_VERIFIED" },
       include: {
-        customer: { select: { id: true, name: true, phone: true, email: true, avatarUrl: true } },
         performer: { select: { id: true, name: true, phone: true, upiId: true, avatarUrl: true } },
         payments: true,
       },
@@ -329,7 +288,6 @@ export class BookingService {
           notes: data.notes ? `${booking.notes || ""}\n[Update]: ${data.notes}` : booking.notes,
         },
         include: {
-          customer: { select: { id: true, name: true, email: true, phone: true, avatarUrl: true } },
           performer: { select: { id: true, name: true, phone: true, upiId: true, avatarUrl: true } },
           payments: true,
         },
@@ -363,9 +321,6 @@ export class BookingService {
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
-        customer: {
-          select: { id: true, name: true, email: true, phone: true, avatarUrl: true },
-        },
         performer: {
           select: { id: true, name: true, email: true, phone: true, avatarUrl: true, hourlyRate: true, upiId: true, city: true },
         },
@@ -386,13 +341,12 @@ export class BookingService {
    * Query & list all bookings with filters & pagination
    */
   async listBookings(query: z.infer<typeof queryBookingsSchema>) {
-    const { status, performerId, customerId, search, date, page, limit } = query;
+    const { status, performerId, search, date, page, limit } = query;
     const skip = (page - 1) * limit;
 
     const where: any = {};
     if (status) where.status = status;
     if (performerId) where.performerId = performerId;
-    if (customerId) where.customerId = customerId;
     if (date) where.bookingDate = new Date(date);
 
     if (search) {
@@ -412,7 +366,6 @@ export class BookingService {
         take: limit,
         orderBy: { createdAt: "desc" },
         include: {
-          customer: { select: { id: true, name: true, phone: true, email: true, avatarUrl: true } },
           performer: { select: { id: true, name: true, phone: true, upiId: true, hourlyRate: true, avatarUrl: true } },
           payments: {
             orderBy: { createdAt: "desc" },

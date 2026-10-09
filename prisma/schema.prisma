@@ -124,7 +124,6 @@ model User {
 
   // Relationships
   photos            UserPhoto[]
-  bookingsMade      Booking[]   @relation("CustomerBookings")
   bookingsReceived  Booking[]   @relation("PerformerBookings")
   organizedEvents   Event[]     @relation("OrganizerEvents")
   attendingEvents   EventAttendee[] @relation("UserAttendingEvents")
@@ -156,17 +155,13 @@ model Booking {
   id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   bookingCode    String        @unique
   
-  // Booker / Client Contact & Personal Details
+  // Booker / Client Contact & Personal Details (Self-contained, independent client details)
   name           String
   email          String
   phone          String
   address        String
   gender         Gender        @default(OTHER)
 
-  // The customer who is booking (Foreign Key to User)
-  customerId     String        @db.Uuid
-  customer       User          @relation("CustomerBookings", fields: [customerId], references: [id], onDelete: Restrict)
-  
   // The performer/dancer being booked
   performerId    String        @db.Uuid
   performer      User          @relation("PerformerBookings", fields: [performerId], references: [id], onDelete: Restrict)
@@ -196,7 +191,6 @@ model Booking {
   updatedAt      DateTime      @updatedAt
 
   @@index([performerId, bookingDate, status])
-  @@index([customerId, status])
   @@index([phone])
   @@index([email])
   @@map("bookings")

@@ -19,8 +19,7 @@ export const PaymentMethodEnum = z.enum([
 ]);
 
 export const initiateBookingSchema = z.object({
-  // Customer & Performer IDs
-  customerId: z.string().uuid("Invalid customer ID").optional(),
+  // Performer ID
   performerId: z.string().uuid("Invalid performer ID"),
 
   // Booker / Client Contact Details
@@ -64,7 +63,6 @@ export const updateBookingStatusSchema = z.object({
 export const queryBookingsSchema = z.object({
   status: BookingStatusEnum.optional(),
   performerId: z.string().uuid().optional(),
-  customerId: z.string().uuid().optional(),
   search: z.string().optional(),
   date: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
