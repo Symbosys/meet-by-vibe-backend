@@ -5,13 +5,20 @@ export const GenderEnum = z.enum(["MALE", "FEMALE", "OTHER"]);
 export const SkillLevelEnum = z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED", "PRO", "CHOREOGRAPHER"]);
 
 const arrayPreprocessor = (val: unknown) => {
+  if (!val) return undefined;
+  if (Array.isArray(val)) {
+    return val.map((item) => (typeof item === "object" && item !== null && "imageUrl" in item ? (item as any).imageUrl : String(item))).filter(Boolean);
+  }
   if (typeof val === "string") {
     try {
       const parsed = JSON.parse(val);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => (typeof item === "object" && item !== null && "imageUrl" in item ? (item as any).imageUrl : String(item))).filter(Boolean);
+      }
     } catch {
       return val.split(",").map((s) => s.trim()).filter(Boolean);
     }
+    return [val];
   }
   return val;
 };
@@ -57,6 +64,8 @@ export const createUserSchema = z.object({
   isAvailable: z.preprocess(booleanPreprocessor, z.boolean().default(true).optional()),
   isActive: z.preprocess(booleanPreprocessor, z.boolean().default(true).optional()),
   isVerified: z.preprocess(booleanPreprocessor, z.boolean().default(false).optional()),
+  photoUrls: z.preprocess(arrayPreprocessor, z.array(z.string()).optional()),
+  photos: z.preprocess(arrayPreprocessor, z.array(z.string()).optional()),
 });
 
 

@@ -72,17 +72,58 @@ export class UserService {
       },
     });
 
-    // Handle multiple gallery photos if provided (at least 5 supported)
+    // Combine photoUrls and photos from body if provided
+    const rawPhotoUrls = [
+      ...((data as any).photoUrls && Array.isArray((data as any).photoUrls) ? (data as any).photoUrls : []),
+      ...((data as any).photos && Array.isArray((data as any).photos) ? (data as any).photos : []),
+    ].filter((u): u is string => typeof u === "string" && u.trim().length > 0);
+
+    const photosToInsert: Array<{
+      userId: string;
+      imageUrl: string;
+      publicId?: string | null;
+      caption: string;
+      order: number;
+    }> = [];
+
+    let currentOrder = 0;
+
+    // 1. Upload any file attachments to Cloudinary
     if (photoFiles && photoFiles.length > 0) {
-      const uploadedPhotos = await uploadImages(photoFiles, "garba/gallery");
-      await prisma.userPhoto.createMany({
-        data: uploadedPhotos.map((p, idx) => ({
+      try {
+        const uploadedPhotos = await uploadImages(photoFiles, "garba/gallery");
+        for (const p of uploadedPhotos) {
+          photosToInsert.push({
+            userId: user.id,
+            imageUrl: p.url,
+            publicId: p.publicId,
+            caption: `Photo ${currentOrder + 1}`,
+            order: currentOrder,
+          });
+          currentOrder++;
+        }
+      } catch (uploadErr) {
+        console.error("[Create User Gallery Upload Error]", uploadErr);
+      }
+    }
+
+    // 2. Insert any remote / web URLs provided
+    if (rawPhotoUrls.length > 0) {
+      for (const url of rawPhotoUrls) {
+        photosToInsert.push({
           userId: user.id,
-          imageUrl: p.url,
-          publicId: p.publicId,
-          caption: `Photo ${idx + 1}`,
-          order: idx,
-        })),
+          imageUrl: url.trim(),
+          caption: `Photo ${currentOrder + 1}`,
+          order: currentOrder,
+        });
+        currentOrder++;
+      }
+    }
+
+    // Save all gallery photos into database
+    if (photosToInsert.length > 0) {
+      await prisma.userPhoto.createMany({
+        data: photosToInsert,
       });
     }
 
@@ -193,8 +234,58 @@ export class UserService {
     }
 
     // Upload new gallery photos if provided
-    if (photoFiles && photoFiles.length > 0) {
-      await this.uploadGalleryPhotos(userId, photoFiles);
+    const rawPhotoUrls = [
+      ...((data as any).photoUrls && Array.isArray((data as any).photoUrls) ? (data as any).photoUrls : []),
+      ...((data as any).photos && Array.isArray((data as any).photos) ? (data as any).photos : []),
+    ].filter((u): u is string => typeof u === "string" && u.trim().length > 0);
+
+    if ((photoFiles && photoFiles.length > 0) || rawPhotoUrls.length > 0) {
+      const photosToInsert: Array<{
+        userId: string;
+        imageUrl: string;
+        publicId?: string | null;
+        caption: string;
+        order: number;
+      }> = [];
+
+      let currentOrder = 0;
+
+      if (photoFiles && photoFiles.length > 0) {
+        try {
+          const uploadedPhotos = await uploadImages(photoFiles, "garba/gallery");
+          for (const p of uploadedPhotos) {
+            photosToInsert.push({
+              userId,
+              imageUrl: p.url,
+              publicId: p.publicId,
+              caption: `Photo ${currentOrder + 1}`,
+              order: currentOrder,
+            });
+            currentOrder++;
+          }
+        } catch (uploadErr) {
+          console.error("[Update User Gallery Upload Error]", uploadErr);
+        }
+      }
+
+      if (rawPhotoUrls.length > 0) {
+        for (const url of rawPhotoUrls) {
+          photosToInsert.push({
+            userId,
+            imageUrl: url.trim(),
+            caption: `Photo ${currentOrder + 1}`,
+            order: currentOrder,
+          });
+          currentOrder++;
+        }
+      }
+
+      if (photosToInsert.length > 0) {
+        await prisma.userPhoto.deleteMany({ where: { userId } });
+        await prisma.userPhoto.createMany({
+          data: photosToInsert,
+        });
+      }
     }
 
     const updated = await prisma.user.update({

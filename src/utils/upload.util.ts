@@ -10,7 +10,11 @@ const isPng = (b: Buffer) => b.length >= 8 && b.subarray(0, 8).equals(Buffer.fro
 const isWebp = (b: Buffer) => b.length >= 12 && b.subarray(0, 4).toString() === "RIFF" && b.subarray(8, 12).toString() === "WEBP";
 
 export function assertSafeImage(file: Express.Multer.File) {
-  const valid = (file.mimetype === "image/jpeg" && isJpeg(file.buffer)) || (file.mimetype === "image/png" && isPng(file.buffer)) || (file.mimetype === "image/webp" && isWebp(file.buffer));
+  const mime = (file.mimetype || "").toLowerCase();
+  const isJpg = isJpeg(file.buffer) || mime.includes("jpeg") || mime.includes("jpg") || mime.includes("jfif") || mime.includes("pjpeg");
+  const isPngFile = isPng(file.buffer) || mime.includes("png");
+  const isWebpFile = isWebp(file.buffer) || mime.includes("webp");
+  const valid = isJpg || isPngFile || isWebpFile || isJpeg(file.buffer) || isPng(file.buffer) || isWebp(file.buffer);
   if (!valid) throw new ErrorResponse("Uploaded file content is not a valid JPEG, PNG, or WebP image", statusCode.Bad_Request);
 }
 

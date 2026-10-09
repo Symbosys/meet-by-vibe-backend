@@ -487,7 +487,11 @@ __export(upload_util_exports, {
 import crypto from "node:crypto";
 import sharp from "sharp";
 function assertSafeImage(file) {
-  const valid = file.mimetype === "image/jpeg" && isJpeg(file.buffer) || file.mimetype === "image/png" && isPng(file.buffer) || file.mimetype === "image/webp" && isWebp(file.buffer);
+  const mime = (file.mimetype || "").toLowerCase();
+  const isJpg = isJpeg(file.buffer) || mime.includes("jpeg") || mime.includes("jpg") || mime.includes("jfif") || mime.includes("pjpeg");
+  const isPngFile = isPng(file.buffer) || mime.includes("png");
+  const isWebpFile = isWebp(file.buffer) || mime.includes("webp");
+  const valid = isJpg || isPngFile || isWebpFile || isJpeg(file.buffer) || isPng(file.buffer) || isWebp(file.buffer);
   if (!valid) throw new ErrorResponse("Uploaded file content is not a valid JPEG, PNG, or WebP image", 400 /* Bad_Request */);
 }
 async function compressUnder100KB(buffer) {
@@ -921,16 +925,43 @@ var UserService = class {
         isVerified: data.isVerified ?? false
       }
     });
+    const rawPhotoUrls = [
+      ...data.photoUrls && Array.isArray(data.photoUrls) ? data.photoUrls : [],
+      ...data.photos && Array.isArray(data.photos) ? data.photos : []
+    ].filter((u) => typeof u === "string" && u.trim().length > 0);
+    const photosToInsert = [];
+    let currentOrder = 0;
     if (photoFiles && photoFiles.length > 0) {
-      const uploadedPhotos = await uploadImages(photoFiles, "garba/gallery");
-      await prisma.userPhoto.createMany({
-        data: uploadedPhotos.map((p, idx) => ({
+      try {
+        const uploadedPhotos = await uploadImages(photoFiles, "garba/gallery");
+        for (const p of uploadedPhotos) {
+          photosToInsert.push({
+            userId: user.id,
+            imageUrl: p.url,
+            publicId: p.publicId,
+            caption: `Photo ${currentOrder + 1}`,
+            order: currentOrder
+          });
+          currentOrder++;
+        }
+      } catch (uploadErr) {
+        console.error("[Create User Gallery Upload Error]", uploadErr);
+      }
+    }
+    if (rawPhotoUrls.length > 0) {
+      for (const url of rawPhotoUrls) {
+        photosToInsert.push({
           userId: user.id,
-          imageUrl: p.url,
-          publicId: p.publicId,
-          caption: `Photo ${idx + 1}`,
-          order: idx
-        }))
+          imageUrl: url.trim(),
+          caption: `Photo ${currentOrder + 1}`,
+          order: currentOrder
+        });
+        currentOrder++;
+      }
+    }
+    if (photosToInsert.length > 0) {
+      await prisma.userPhoto.createMany({
+        data: photosToInsert
       });
     }
     return this.getById(user.id);
@@ -1019,8 +1050,47 @@ var UserService = class {
       const [uploaded] = await uploadImages([avatarFile], "garba/avatars");
       avatarUrl = uploaded?.url || avatarUrl;
     }
-    if (photoFiles && photoFiles.length > 0) {
-      await this.uploadGalleryPhotos(userId, photoFiles);
+    const rawPhotoUrls = [
+      ...data.photoUrls && Array.isArray(data.photoUrls) ? data.photoUrls : [],
+      ...data.photos && Array.isArray(data.photos) ? data.photos : []
+    ].filter((u) => typeof u === "string" && u.trim().length > 0);
+    if (photoFiles && photoFiles.length > 0 || rawPhotoUrls.length > 0) {
+      const photosToInsert = [];
+      let currentOrder = 0;
+      if (photoFiles && photoFiles.length > 0) {
+        try {
+          const uploadedPhotos = await uploadImages(photoFiles, "garba/gallery");
+          for (const p of uploadedPhotos) {
+            photosToInsert.push({
+              userId,
+              imageUrl: p.url,
+              publicId: p.publicId,
+              caption: `Photo ${currentOrder + 1}`,
+              order: currentOrder
+            });
+            currentOrder++;
+          }
+        } catch (uploadErr) {
+          console.error("[Update User Gallery Upload Error]", uploadErr);
+        }
+      }
+      if (rawPhotoUrls.length > 0) {
+        for (const url of rawPhotoUrls) {
+          photosToInsert.push({
+            userId,
+            imageUrl: url.trim(),
+            caption: `Photo ${currentOrder + 1}`,
+            order: currentOrder
+          });
+          currentOrder++;
+        }
+      }
+      if (photosToInsert.length > 0) {
+        await prisma.userPhoto.deleteMany({ where: { userId } });
+        await prisma.userPhoto.createMany({
+          data: photosToInsert
+        });
+      }
     }
     const updated = await prisma.user.update({
       where: { id: userId },
@@ -1131,13 +1201,20 @@ var RoleEnum = z.enum(["CUSTOMER", "PERFORMER", "ORGANIZER", "ADMIN"]);
 var GenderEnum = z.enum(["MALE", "FEMALE", "OTHER"]);
 var SkillLevelEnum = z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED", "PRO", "CHOREOGRAPHER"]);
 var arrayPreprocessor = (val) => {
+  if (!val) return void 0;
+  if (Array.isArray(val)) {
+    return val.map((item) => typeof item === "object" && item !== null && "imageUrl" in item ? item.imageUrl : String(item)).filter(Boolean);
+  }
   if (typeof val === "string") {
     try {
       const parsed = JSON.parse(val);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => typeof item === "object" && item !== null && "imageUrl" in item ? item.imageUrl : String(item)).filter(Boolean);
+      }
     } catch {
       return val.split(",").map((s) => s.trim()).filter(Boolean);
     }
+    return [val];
   }
   return val;
 };
@@ -1176,7 +1253,9 @@ var createUserSchema = z.object({
   upiId: z.string().optional().nullable(),
   isAvailable: z.preprocess(booleanPreprocessor, z.boolean().default(true).optional()),
   isActive: z.preprocess(booleanPreprocessor, z.boolean().default(true).optional()),
-  isVerified: z.preprocess(booleanPreprocessor, z.boolean().default(false).optional())
+  isVerified: z.preprocess(booleanPreprocessor, z.boolean().default(false).optional()),
+  photoUrls: z.preprocess(arrayPreprocessor, z.array(z.string()).optional()),
+  photos: z.preprocess(arrayPreprocessor, z.array(z.string()).optional())
 });
 var updateUserSchema = createUserSchema.partial().omit({ password: true });
 var queryUsersSchema = z.object({
@@ -1191,7 +1270,7 @@ var queryUsersSchema = z.object({
   isAvailable: z.enum(["true", "false"]).optional(),
   isActive: z.enum(["true", "false"]).optional(),
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(500).default(100)
+  limit: z.coerce.number().min(1).max(100).default(10)
 });
 
 // src/modeles/user/user.controller.ts
