@@ -132,6 +132,14 @@ export class BookingService {
 
     const finalQrCodeUrl = activeQrImageUrl || qrCodeDataUrl;
 
+    // 5. Prepare Image JSON payload if client provided avatarUrl or image
+    let clientImageJson: any = null;
+    if (data.image) {
+      clientImageJson = typeof data.image === "string" ? { url: data.image } : data.image;
+    } else if (data.avatarUrl) {
+      clientImageJson = { url: data.avatarUrl };
+    }
+
     // 6. Create Booking and Payment atomically in a transaction
     const [booking, payment] = await prisma.$transaction(async (tx) => {
       const newBooking = await tx.booking.create({
@@ -141,6 +149,7 @@ export class BookingService {
           email: data.email,
           phone: data.phone,
           address: data.address,
+          image: clientImageJson || undefined,
           gender: data.gender,
           performerId: data.performerId,
           bookingDate: bDate,

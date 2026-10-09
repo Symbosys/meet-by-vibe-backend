@@ -29,6 +29,7 @@ export const initiateBookingSchema = z.object({
   address: z.string().min(3, "Address is required"),
   gender: GenderEnum.default("OTHER"),
   avatarUrl: z.string().optional().nullable(),
+  image: z.any().optional().nullable(),
 
   // Slot Timing
   bookingDate: z.string().refine((val) => !isNaN(Date.parse(val)), {

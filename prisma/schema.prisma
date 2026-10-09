@@ -77,60 +77,60 @@ enum AttendanceStatus {
 // ----------------------------------------------------
 
 model User {
-  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
   // Basic & Auth Details
-  name              String
-  email             String      @unique
-  phone             String      @unique
-  passwordHash      String
-  avatarUrl         String?
-  gender            Gender      @default(OTHER)
-  role              Role        @default(CUSTOMER)
-  
+  name         String
+  email        String  @unique
+  phone        String  @unique
+  passwordHash String
+  avatarUrl    String?
+  gender       Gender  @default(OTHER)
+  role         Role    @default(CUSTOMER)
+
   // Physical & Personal Details
-  height            Decimal?    @db.Decimal(5, 2)
-  dateOfBirth       DateTime?   @db.Date
-  languages         String[]    @default(["Gujarati", "Hindi"])
-  
+  height      Decimal?  @db.Decimal(5, 2)
+  dateOfBirth DateTime? @db.Date
+  languages   String[]  @default(["Gujarati", "Hindi"])
+
   // Location Details
-  address           String?
-  city              String?
-  state             String?
-  pincode           String?
-  latitude          Decimal?    @db.Decimal(10, 7)
-  longitude         Decimal?    @db.Decimal(10, 7)
-  
+  address   String?
+  city      String?
+  state     String?
+  pincode   String?
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
   // Dance & Performer Profile
-  bio               String?     @db.Text
-  skillLevel        SkillLevel  @default(INTERMEDIATE)
-  danceStyles       String[]    @default(["Traditional Garba", "Dodhiya", "Dandiya Raas"])
-  experienceYears   Int?        @default(0)
-  instagramHandle   String?
-  
+  bio             String?    @db.Text
+  skillLevel      SkillLevel @default(INTERMEDIATE)
+  danceStyles     String[]   @default(["Traditional Garba", "Dodhiya", "Dandiya Raas"])
+  experienceYears Int?       @default(0)
+  instagramHandle String?
+
   // Booking & Financial Details
-  hourlyRate        Decimal?    @db.Decimal(10, 2)
-  upiId             String?
-  isAvailable       Boolean     @default(true)
-  
+  hourlyRate  Decimal? @db.Decimal(10, 2)
+  upiId       String?
+  isAvailable Boolean  @default(true)
+
   // Ratings & Stats
-  rating            Decimal     @default(0.0) @db.Decimal(3, 2)
-  reviewCount       Int         @default(0)
-  totalBookingsDone Int         @default(0)
+  rating            Decimal @default(0.0) @db.Decimal(3, 2)
+  reviewCount       Int     @default(0)
+  totalBookingsDone Int     @default(0)
 
   // Account State
-  isActive          Boolean     @default(true)
-  isVerified        Boolean     @default(false)
+  isActive   Boolean @default(true)
+  isVerified Boolean @default(false)
 
   // Relationships
-  photos            UserPhoto[]
-  bookingsReceived  Booking[]   @relation("PerformerBookings")
-  organizedEvents   Event[]     @relation("OrganizerEvents")
-  attendingEvents   EventAttendee[] @relation("UserAttendingEvents")
-  favoriteEvents    EventFavorite[] @relation("UserFavoriteEvents")
+  photos           UserPhoto[]
+  bookingsReceived Booking[]       @relation("PerformerBookings")
+  organizedEvents  Event[]         @relation("OrganizerEvents")
+  attendingEvents  EventAttendee[] @relation("UserAttendingEvents")
+  favoriteEvents   EventFavorite[] @relation("UserFavoriteEvents")
 
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([role, isAvailable, city])
   @@index([skillLevel, city])
@@ -152,43 +152,44 @@ model UserPhoto {
 }
 
 model Booking {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  bookingCode    String        @unique
-  
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingCode String @unique
+
   // Booker / Client Contact & Personal Details (Self-contained, independent client details)
-  name           String
-  email          String
-  phone          String
-  address        String
-  gender         Gender        @default(OTHER)
+  name    String
+  email   String
+  phone   String
+  address String
+  image   Json?
+  gender  Gender @default(OTHER)
 
   // The performer/dancer being booked
-  performerId    String        @db.Uuid
-  performer      User          @relation("PerformerBookings", fields: [performerId], references: [id], onDelete: Restrict)
+  performerId String @db.Uuid
+  performer   User   @relation("PerformerBookings", fields: [performerId], references: [id], onDelete: Restrict)
 
   // Slot Timings
-  bookingDate    DateTime      @db.Date
-  startTime      DateTime
-  endTime        DateTime
-  durationHours  Decimal       @db.Decimal(4, 2)
-  
+  bookingDate   DateTime @db.Date
+  startTime     DateTime
+  endTime       DateTime
+  durationHours Decimal  @db.Decimal(4, 2)
+
   // Event Location & Notes
-  eventAddress   String?
-  city           String?
-  notes          String?       @db.Text
+  eventAddress String?
+  city         String?
+  notes        String? @db.Text
 
   // Financials
-  hourlyRate     Decimal       @db.Decimal(10, 2)
-  totalAmount    Decimal       @db.Decimal(10, 2)
-  advanceAmount  Decimal       @default(0) @db.Decimal(10, 2)
+  hourlyRate    Decimal @db.Decimal(10, 2)
+  totalAmount   Decimal @db.Decimal(10, 2)
+  advanceAmount Decimal @default(0) @db.Decimal(10, 2)
 
-  status         BookingStatus @default(PENDING)
-  expiresAt      DateTime?
+  status    BookingStatus @default(PENDING)
+  expiresAt DateTime?
 
-  payments       Payment[]
+  payments Payment[]
 
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([performerId, bookingDate, status])
   @@index([phone])
@@ -197,31 +198,31 @@ model Booking {
 }
 
 model Payment {
-  id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  bookingId            String        @db.Uuid
-  booking              Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  
-  amount               Decimal       @db.Decimal(10, 2)
-  currency             String        @default("INR")
-  paymentMethod        PaymentMethod @default(UPI_QR_DYNAMIC)
-  paymentStatus        PaymentStatus @default(PENDING)
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  amount        Decimal       @db.Decimal(10, 2)
+  currency      String        @default("INR")
+  paymentMethod PaymentMethod @default(UPI_QR_DYNAMIC)
+  paymentStatus PaymentStatus @default(PENDING)
 
   // QR Code & Payment Data
   qrCodeUrl            String?
   upiPayload           String?
-  transactionRef       String        @unique
+  transactionRef       String  @unique
   utrNumber            String?
   paymentScreenshotUrl String?
-  
-  // Gateway specific
-  gatewayOrderId       String?
-  gatewayPaymentId     String?
-  metadata             Json?
 
-  paidAt               DateTime?
-  expiresAt            DateTime?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  // Gateway specific
+  gatewayOrderId   String?
+  gatewayPaymentId String?
+  metadata         Json?
+
+  paidAt    DateTime?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([bookingId])
   @@index([transactionRef])
@@ -229,73 +230,73 @@ model Payment {
 }
 
 model QRCode {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title             String
-  imageUrl          String   @db.Text
+  imageUrl          String  @db.Text
   upiId             String?
   accountHolderName String?
   bankName          String?
-  isActive          Boolean  @default(true)
-  isPrimary         Boolean  @default(false)
-  description       String?  @db.Text
+  isActive          Boolean @default(true)
+  isPrimary         Boolean @default(false)
+  description       String? @db.Text
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([isActive, isPrimary])
   @@map("qr_codes")
 }
 
 model Event {
-  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  title                 String
-  slug                  String?           @unique
-  description           String            @db.Text
-  
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String
+  slug        String? @unique
+  description String  @db.Text
+
   // Media / Banners
-  imageUrl              String            @db.Text
-  galleryImages         String[]          @default([])
-  
+  imageUrl      String   @db.Text
+  galleryImages String[] @default([])
+
   // Schedule & Timing
-  eventDate             DateTime          @db.Date
-  endDate               DateTime?         @db.Date
-  startTime             String            // e.g. "07:30 PM"
-  endTime               String?           // e.g. "01:00 AM"
-  
+  eventDate DateTime  @db.Date
+  endDate   DateTime? @db.Date
+  startTime String // e.g. "07:30 PM"
+  endTime   String? // e.g. "01:00 AM"
+
   // Venue & Location
-  venue                 String
-  address               String?
-  city                  String
-  state                 String
-  pincode               String?
-  latitude              Decimal?          @db.Decimal(10, 7)
-  longitude             Decimal?          @db.Decimal(10, 7)
-  
+  venue     String
+  address   String?
+  city      String
+  state     String
+  pincode   String?
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
   // Ticketing & Capacity
-  pricePerPass          Decimal?          @default(0) @db.Decimal(10, 2)
-  totalCapacity         Int?
-  
+  pricePerPass  Decimal? @default(0) @db.Decimal(10, 2)
+  totalCapacity Int?
+
   // Flags & Visibility
-  isFeatured            Boolean           @default(false)
-  isActive              Boolean           @default(true)
-  status                EventStatus       @default(UPCOMING)
-  
+  isFeatured Boolean     @default(false)
+  isActive   Boolean     @default(true)
+  status     EventStatus @default(UPCOMING)
+
   // Organizer Link
-  organizerId           String?           @db.Uuid
-  organizer             User?             @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: SetNull)
-  organizerName         String?
-  organizerContact      String?
-  
+  organizerId      String? @db.Uuid
+  organizer        User?   @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: SetNull)
+  organizerName    String?
+  organizerContact String?
+
   // Guidelines & Dress Code
-  dressCode             String?           @default("Traditional Garba Attire")
-  rules                 String[]          @default([])
+  dressCode String?  @default("Traditional Garba Attire")
+  rules     String[] @default([])
 
   // Relational Links
-  attendees             EventAttendee[]
-  favoritedBy           EventFavorite[]
+  attendees   EventAttendee[]
+  favoritedBy EventFavorite[]
 
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([city, eventDate, status])
   @@index([isFeatured, status])
@@ -305,22 +306,22 @@ model Event {
 }
 
 model EventAttendee {
-  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  
-  eventId               String            @db.Uuid
-  event                 Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  
-  userId                String            @db.Uuid
-  user                  User              @relation("UserAttendingEvents", fields: [userId], references: [id], onDelete: Cascade)
-  
-  status                AttendanceStatus  @default(GOING)
-  lookingForPartner     Boolean           @default(false)
-  
-  passCount             Int               @default(1)
-  notes                 String?
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
 
-  joinedAt              DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  eventId String @db.Uuid
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation("UserAttendingEvents", fields: [userId], references: [id], onDelete: Cascade)
+
+  status            AttendanceStatus @default(GOING)
+  lookingForPartner Boolean          @default(false)
+
+  passCount Int     @default(1)
+  notes     String?
+
+  joinedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([eventId, userId])
   @@index([eventId, lookingForPartner])
@@ -329,15 +330,15 @@ model EventAttendee {
 }
 
 model EventFavorite {
-  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  
-  eventId               String            @db.Uuid
-  event                 Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  
-  userId                String            @db.Uuid
-  user                  User              @relation("UserFavoriteEvents", fields: [userId], references: [id], onDelete: Cascade)
-  
-  createdAt             DateTime          @default(now())
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  eventId String @db.Uuid
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation("UserFavoriteEvents", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
 
   @@unique([eventId, userId])
   @@index([userId])
