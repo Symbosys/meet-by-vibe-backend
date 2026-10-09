@@ -1191,7 +1191,7 @@ var queryUsersSchema = z.object({
   isAvailable: z.enum(["true", "false"]).optional(),
   isActive: z.enum(["true", "false"]).optional(),
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(10)
+  limit: z.coerce.number().min(1).max(500).default(100)
 });
 
 // src/modeles/user/user.controller.ts
