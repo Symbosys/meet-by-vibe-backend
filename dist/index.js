@@ -1243,7 +1243,35 @@ var createUserSchema = z.object({
   photoUrls: z.preprocess(arrayPreprocessor, z.array(z.string()).optional()),
   photos: z.preprocess(arrayPreprocessor, z.array(z.string()).optional())
 });
-var updateUserSchema = createUserSchema.partial().omit({ password: true });
+var updateUserSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  email: z.string().email().optional(),
+  phone: z.string().min(10).optional(),
+  avatarUrl: z.string().optional().nullable(),
+  gender: GenderEnum.optional(),
+  role: RoleEnum.optional(),
+  height: z.preprocess((v) => v === "" || v === void 0 ? void 0 : v, z.coerce.number().min(50).max(250).optional().nullable()),
+  dateOfBirth: z.string().optional().nullable(),
+  languages: z.preprocess(arrayPreprocessor, z.array(z.string()).optional()),
+  address: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  state: z.string().optional().nullable(),
+  pincode: z.string().optional().nullable(),
+  latitude: z.preprocess((v) => v === "" || v === void 0 ? void 0 : v, z.coerce.number().optional().nullable()),
+  longitude: z.preprocess((v) => v === "" || v === void 0 ? void 0 : v, z.coerce.number().optional().nullable()),
+  bio: z.string().max(1e3).optional().nullable(),
+  skillLevel: SkillLevelEnum.optional(),
+  danceStyles: z.preprocess(arrayPreprocessor, z.array(z.string()).optional()),
+  experienceYears: z.preprocess((v) => v === "" || v === void 0 ? void 0 : v, z.coerce.number().min(0).max(50).optional()),
+  instagramHandle: z.string().optional().nullable(),
+  hourlyRate: z.preprocess((v) => v === "" || v === void 0 ? void 0 : v, z.coerce.number().min(0).optional().nullable()),
+  upiId: z.string().optional().nullable(),
+  isAvailable: z.preprocess(booleanPreprocessor, z.boolean().optional()),
+  isActive: z.preprocess(booleanPreprocessor, z.boolean().optional()),
+  isVerified: z.preprocess(booleanPreprocessor, z.boolean().optional()),
+  photoUrls: z.preprocess(arrayPreprocessor, z.array(z.string()).optional()),
+  photos: z.preprocess(arrayPreprocessor, z.array(z.string()).optional())
+});
 var queryUsersSchema = z.object({
   search: z.string().optional(),
   role: RoleEnum.optional(),
