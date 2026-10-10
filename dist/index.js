@@ -48,7 +48,7 @@ var init_env = __esm({
       azure_storage_connection_string: process.env.AZURE_STORAGE_CONNECTION_STRING,
       MODE: process.env.MODE,
       OLA_MAPS_API_KEY: process.env.OLA_MAPS_API_KEY,
-      ADMIN_PIN: (process.env.ADMIN_PIN || "933480").trim()
+      ADMIN_PIN: (process.env.ADMIN_PIN || "123456").trim()
     };
   }
 });
@@ -857,9 +857,6 @@ import bcrypt from "bcryptjs";
 async function hashPassword(password) {
   const salt = await bcrypt.genSalt(10);
   return bcrypt.hash(password, salt);
-}
-async function comparePassword(password, hash) {
-  return bcrypt.compare(password, hash);
 }
 
 // src/modeles/user/user.service.ts
@@ -2979,16 +2976,18 @@ var event_routes_default = router4;
 // src/modeles/auth/auth.routes.ts
 import { Router as Router5 } from "express";
 
-// src/modeles/auth/auth.service.ts
-init_env();
-import jwt from "jsonwebtoken";
+// src/modeles/auth/auth.controller.ts
 init_types();
 init_response_util();
-var DEFAULT_ADMIN_PIN = "933480";
-var ADMIN_EMAIL = "admin@garbahub.com";
+
+// src/modeles/auth/auth.service.ts
+init_env();
+init_types();
+init_response_util();
+import jwt from "jsonwebtoken";
 var AuthService = class {
   /**
-   * Verify the 6-digit admin password/PIN against database or fallback
+   * Verify the 6-digit admin password/PIN
    */
   async verifyAdminPin(pin) {
     if (!pin || typeof pin !== "string") {
@@ -2998,118 +2997,22 @@ var AuthService = class {
     if (trimmedPin.length !== 6) {
       throw new ErrorResponse("PIN must be exactly 6 digits", 400 /* Bad_Request */);
     }
-    let adminUser = await prisma.user.findFirst({
-      where: { role: "ADMIN" },
-      orderBy: { createdAt: "asc" }
-    });
-    let isValid = false;
-    if (adminUser) {
-      if (adminUser.passwordHash) {
-        isValid = await comparePassword(trimmedPin, adminUser.passwordHash);
-        if (!isValid && adminUser.passwordHash === trimmedPin) {
-          isValid = true;
-        }
-      }
-    } else {
-      const configuredPin = (process.env.ADMIN_PIN || ENV.ADMIN_PIN || DEFAULT_ADMIN_PIN).trim();
-      if (trimmedPin === configuredPin || trimmedPin === DEFAULT_ADMIN_PIN) {
-        isValid = true;
-        try {
-          const passwordHash = await hashPassword(trimmedPin);
-          adminUser = await prisma.user.create({
-            data: {
-              name: "Super Admin",
-              email: ADMIN_EMAIL,
-              phone: "+919999999999",
-              passwordHash,
-              role: "ADMIN",
-              gender: "OTHER",
-              isActive: true,
-              isVerified: true
-            }
-          });
-        } catch (seedErr) {
-          console.warn("Could not auto-seed admin user:", seedErr);
-        }
-      }
-    }
-    if (!isValid) {
+    const correctPin = (process.env.ADMIN_PIN || ENV.ADMIN_PIN || "123456").trim();
+    if (trimmedPin !== correctPin) {
       throw new ErrorResponse("Invalid admin password. Access denied.", 401 /* Unauthorized */);
     }
     const secret = ENV.JWT_SECRET || "garba-admin-secret-key-2026";
-    const token = jwt.sign(
-      { role: "ADMIN", access: "FULL", adminId: adminUser?.id || "admin-root" },
-      secret,
-      { expiresIn: "7d" }
-    );
+    const token = jwt.sign({ role: "ADMIN", access: "FULL" }, secret, { expiresIn: "7d" });
     return {
       authenticated: true,
       token,
       message: "Admin access granted successfully"
     };
   }
-  /**
-   * Change admin password/PIN in database
-   */
-  async changeAdminPin(currentPin, newPin) {
-    if (!newPin || typeof newPin !== "string" || newPin.trim().length !== 6) {
-      throw new ErrorResponse("New PIN must be exactly 6 digits", 400 /* Bad_Request */);
-    }
-    await this.verifyAdminPin(currentPin);
-    const trimmedNewPin = newPin.trim();
-    const passwordHash = await hashPassword(trimmedNewPin);
-    let adminUser = await prisma.user.findFirst({
-      where: { role: "ADMIN" }
-    });
-    if (adminUser) {
-      await prisma.user.update({
-        where: { id: adminUser.id },
-        data: { passwordHash }
-      });
-    } else {
-      await prisma.user.create({
-        data: {
-          name: "Super Admin",
-          email: ADMIN_EMAIL,
-          phone: "+919999999999",
-          passwordHash,
-          role: "ADMIN",
-          gender: "OTHER",
-          isActive: true,
-          isVerified: true
-        }
-      });
-    }
-    return {
-      success: true,
-      message: "Admin password successfully updated in database"
-    };
-  }
-  /**
-   * Get current admin info (without exposing password)
-   */
-  async getAdminInfo() {
-    const adminUser = await prisma.user.findFirst({
-      where: { role: "ADMIN" },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        updatedAt: true
-      }
-    });
-    return {
-      hasAdminInDb: Boolean(adminUser),
-      adminUser
-    };
-  }
 };
 var authService = new AuthService();
 
 // src/modeles/auth/auth.controller.ts
-init_response_util();
-init_types();
 var AuthController = class {
   /**
    * POST /api/v1/auth/admin/verify-pin
@@ -3124,39 +3027,12 @@ var AuthController = class {
       next(err);
     }
   }
-  /**
-   * POST /api/v1/auth/admin/change-pin
-   * Update the 6-digit admin password in database
-   */
-  async changeAdminPin(req, res, next) {
-    try {
-      const { currentPin, newPin } = req.body;
-      const result = await authService.changeAdminPin(currentPin, newPin);
-      return SuccessResponse(res, result.message, result, 200 /* OK */);
-    } catch (err) {
-      next(err);
-    }
-  }
-  /**
-   * GET /api/v1/auth/admin/info
-   * Fetch current admin status
-   */
-  async getAdminInfo(req, res, next) {
-    try {
-      const result = await authService.getAdminInfo();
-      return SuccessResponse(res, "Admin info fetched successfully", result, 200 /* OK */);
-    } catch (err) {
-      next(err);
-    }
-  }
 };
 var authController = new AuthController();
 
 // src/modeles/auth/auth.routes.ts
 var router5 = Router5();
-router5.post("/admin/verify-pin", authController.verifyAdminPin.bind(authController));
-router5.post("/admin/change-pin", authController.changeAdminPin.bind(authController));
-router5.get("/admin/info", authController.getAdminInfo.bind(authController));
+router5.post("/admin/verify-pin", authController.verifyAdminPin);
 var auth_routes_default = router5;
 
 // src/app.ts
