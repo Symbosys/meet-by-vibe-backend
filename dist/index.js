@@ -48,7 +48,7 @@ var init_env = __esm({
       azure_storage_connection_string: process.env.AZURE_STORAGE_CONNECTION_STRING,
       MODE: process.env.MODE,
       OLA_MAPS_API_KEY: process.env.OLA_MAPS_API_KEY,
-      ADMIN_PIN: (process.env.ADMIN_PIN || "123456").trim()
+      ADMIN_PIN: (process.env.ADMIN_PIN || "933480").trim()
     };
   }
 });

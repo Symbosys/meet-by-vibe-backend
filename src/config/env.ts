@@ -38,5 +38,5 @@ export const ENV = {
 
   MODE: process.env.MODE as "DEVELOPMENT" | "PRODUCTION",
   OLA_MAPS_API_KEY: process.env.OLA_MAPS_API_KEY,
-  ADMIN_PIN: (process.env.ADMIN_PIN || "123456").trim(),
+  ADMIN_PIN: (process.env.ADMIN_PIN || "933480").trim(),
 };
