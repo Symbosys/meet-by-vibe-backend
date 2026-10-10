@@ -1869,6 +1869,19 @@ var BookingService = class {
       }))
     };
   }
+  /**
+   * DELETE /api/v1/bookings/:id
+   * Permanently delete booking and its cascade records (payments, etc.)
+   */
+  async delete(bookingId) {
+    const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!booking) {
+      throw new ErrorResponse("Booking not found", 404 /* Not_Found */);
+    }
+    await prisma.payment.deleteMany({ where: { bookingId } });
+    await prisma.booking.delete({ where: { id: bookingId } });
+    return { success: true, message: "Booking deleted successfully" };
+  }
 };
 var bookingService = new BookingService();
 
@@ -2030,6 +2043,18 @@ var BookingController = class {
       next(err);
     }
   }
+  /**
+   * DELETE /api/v1/bookings/:id
+   * Permanently deletes booking from database
+   */
+  async delete(req, res, next) {
+    try {
+      const result = await bookingService.delete(req.params.id);
+      return SuccessResponse(res, "Booking deleted successfully", result);
+    } catch (err) {
+      next(err);
+    }
+  }
 };
 var bookingController = new BookingController();
 
@@ -2048,6 +2073,7 @@ router2.get(
 router2.get("/:id", bookingController.getBooking.bind(bookingController));
 router2.patch("/:id/status", bookingController.updateStatus.bind(bookingController));
 router2.get("/", bookingController.listBookings.bind(bookingController));
+router2.delete("/:id", bookingController.delete.bind(bookingController));
 var booking_routes_default = router2;
 
 // src/modeles/qr/qr.routes.ts

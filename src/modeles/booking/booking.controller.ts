@@ -106,6 +106,19 @@ export class BookingController {
       next(err);
     }
   }
+
+  /**
+   * DELETE /api/v1/bookings/:id
+   * Permanently deletes booking from database
+   */
+  async delete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await bookingService.delete(req.params.id as string);
+      return SuccessResponse(res, "Booking deleted successfully", result);
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const bookingController = new BookingController();

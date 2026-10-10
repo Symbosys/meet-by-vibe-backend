@@ -29,4 +29,7 @@ router.patch("/:id/status", bookingController.updateStatus.bind(bookingControlle
 // List bookings with status/date/search pagination filters
 router.get("/", bookingController.listBookings.bind(bookingController));
 
+// Delete booking permanently from database
+router.delete("/:id", bookingController.delete.bind(bookingController));
+
 export default router;

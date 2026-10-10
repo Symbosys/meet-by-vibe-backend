@@ -434,6 +434,23 @@ export class BookingService {
       })),
     };
   }
+
+  /**
+   * DELETE /api/v1/bookings/:id
+   * Permanently delete booking and its cascade records (payments, etc.)
+   */
+  async delete(bookingId: string) {
+    const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!booking) {
+      throw new ErrorResponse("Booking not found", statusCode.Not_Found);
+    }
+
+    // Delete payment records first if any, then booking
+    await prisma.payment.deleteMany({ where: { bookingId } });
+    await prisma.booking.delete({ where: { id: bookingId } });
+
+    return { success: true, message: "Booking deleted successfully" };
+  }
 }
 
 export const bookingService = new BookingService();
