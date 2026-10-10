@@ -1,7 +1,7 @@
-import type { Request, Response, NextFunction } from "express";
-import { authService } from "./auth.service.js";
-import { SuccessResponse } from "../../utils/response.util.js";
+import type { NextFunction, Request, Response } from "express";
 import { statusCode } from "../../types/types.js";
+import { SuccessResponse } from "../../utils/response.util.js";
+import { authService } from "./auth.service.js";
 
 export class AuthController {
   /**
