@@ -78,13 +78,13 @@ export class BookingService {
     }
 
     // 3. Check for double booking
-    const conflict = await this.checkSlotCollision(data.performerId, bDate, start, end);
-    if (conflict) {
-      throw new ErrorResponse(
-        `This time slot overlaps with an existing booking (${conflict.bookingCode}). Please choose another time.`,
-        statusCode.Conflict
-      );
-    }
+    // const conflict = await this.checkSlotCollision(data.performerId, bDate, start, end);
+    // if (conflict) {
+    //   throw new ErrorResponse(
+    //     `This time slot overlaps with an existing booking (${conflict.bookingCode}). Please choose another time.`,
+    //     statusCode.Conflict
+    //   );
+    // }
 
     // 4. Calculate Financials
     const hourlyRate = performer.hourlyRate ? Number(performer.hourlyRate) : 399;
