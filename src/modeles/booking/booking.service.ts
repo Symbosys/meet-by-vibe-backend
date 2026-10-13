@@ -64,7 +64,13 @@ export class BookingService {
     // 2. Parse & validate dates
     const bDate = new Date(data.bookingDate);
     const start = new Date(data.startTime);
-    const end = new Date(data.endTime);
+    let end = new Date(data.endTime);
+
+    // If end time is before or equal to start time (e.g. overnight slot spanning midnight),
+    // roll end time to the next calendar day (+24 hours)
+    if (end <= start) {
+      end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+    }
 
     if (start >= end) {
       throw new ErrorResponse("Slot start time must be before end time", statusCode.Bad_Request);

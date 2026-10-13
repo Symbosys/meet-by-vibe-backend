@@ -1549,7 +1549,10 @@ var BookingService = class {
     }
     const bDate = new Date(data.bookingDate);
     const start = new Date(data.startTime);
-    const end = new Date(data.endTime);
+    let end = new Date(data.endTime);
+    if (end <= start) {
+      end = new Date(end.getTime() + 24 * 60 * 60 * 1e3);
+    }
     if (start >= end) {
       throw new ErrorResponse("Slot start time must be before end time", 400 /* Bad_Request */);
     }
@@ -1557,13 +1560,6 @@ var BookingService = class {
     const durationHours = parseFloat((durationMillis / (1e3 * 60 * 60)).toFixed(2));
     if (durationHours < 0.5) {
       throw new ErrorResponse("Minimum booking duration is 30 minutes (0.5 hr)", 400 /* Bad_Request */);
-    }
-    const conflict = await this.checkSlotCollision(data.performerId, bDate, start, end);
-    if (conflict) {
-      throw new ErrorResponse(
-        `This time slot overlaps with an existing booking (${conflict.bookingCode}). Please choose another time.`,
-        409 /* Conflict */
-      );
     }
     const hourlyRate = performer.hourlyRate ? Number(performer.hourlyRate) : 399;
     const totalAmount = hourlyRate;
